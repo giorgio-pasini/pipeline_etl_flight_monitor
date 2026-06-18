@@ -1,0 +1,11 @@
+# Plan de implementation
+- #DONE : créer un premier notebook d'exploration pour voir ce que l'API offre
+- #TODO : faire une modélisation des données pour comprendre comme mieux arranger les tables
+- #TODO : faire une structure datalake pour le layer landing en déposant le résultat directe des l'extraction de l'API, en suivant la structure de projet proposée par le Kata
+- #TODO : faire un POC de Structured Streaming en utilisant Spark pour commencer à déposer les fichiers dans le datalake
+- #TODO : faire un POC de transformation sur les données extraites pour s'assurer que les réponses aux KPI sont contenues dans le données qu'on a extrait, autre que voir rapidement les transformations à faire
+- #TODO : individuer les meilleures stratégies de partition à appliquer pour le job Spark
+- #TODO : implementer le job spark finale en utilisant le structured streaming
+- #TODO : implementer la dashboard streamlit pour répondre aux questions du kata
+- #TODO : implementer Apache AirFlow pour faire tourner automatiquement le job spark
+- #TODO : tout deployer sur AWS
