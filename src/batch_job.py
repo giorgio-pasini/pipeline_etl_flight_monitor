@@ -30,13 +30,13 @@ Configuration :
 import logging
 import sys
 import argparse
+import time
 from pathlib import Path
 from datetime import datetime
-import yaml
 from typing import Optional
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, year, month, dayofmonth, hour, to_date
+from pyspark.sql.functions import col, lit
 
 # Import local
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -46,6 +46,7 @@ from src.flight_extraction import extract_flights_batch
 from src.data_quality import validate_and_flag_flights, profile_data_quality
 from src.datalake_utils import get_partition_values
 from src.silver_gold_loader import SilverGoldLoader
+from src.job_metrics import JobMetrics
 import json
 
 
@@ -95,27 +96,45 @@ def run_batch(
     config: DatalakeConfig,
     logger: logging.Logger,
     zones: Optional[list] = None,
+    with_silver_gold: Optional[bool] = None,
 ) -> bool:
     """
     Exécuter un batch unique d'extraction et chargement.
+
+    Pipeline complet (point d'entrée unique du projet) :
+    1. Extraction API
+    2. Validation + flagging qualité
+    3. Profil de qualité + analyse (en vol / au sol, dimensions)
+    4. Partitionnement temporel
+    5. Écriture Bronze
+    6. (optionnel) Transformation Silver + Gold
+    7. Métriques JSON (consommées par le dashboard Streamlit)
 
     Args:
         spark: Session Spark
         config: Configuration du datalake
         logger: Logger
         zones: Zones à collecter (None = ["global"])
+        with_silver_gold: Forcer Silver/Gold (None = config.LOAD_SILVER_GOLD)
 
     Returns:
         True si succès, False sinon
     """
 
+    if with_silver_gold is None:
+        with_silver_gold = config.LOAD_SILVER_GOLD
+
+    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metrics = JobMetrics(batch_id)
+
     try:
         logger.info("="*70)
-        logger.info(f"Démarrage batch — {datetime.now().isoformat()}")
+        logger.info(f"Démarrage batch {batch_id} — {datetime.now().isoformat()}")
         logger.info("="*70)
 
-        # Extraction
+        # Phase 1 : Extraction
         logger.info("Phase 1 : Extraction de l'API...")
+        start_phase = time.time()
 
         extraction_config = {
             "zones": zones or ["global"],
@@ -126,22 +145,52 @@ def run_batch(
 
         df = extract_flights_batch(spark, extraction_config)
         num_flights = df.count()
+        metrics.set_extraction(num_flights, time.time() - start_phase)
 
         if num_flights == 0:
             logger.warning("Aucun vol collecté!")
+            metrics.add_warning("empty_extraction", "Aucun vol retourné par l'API")
+            metrics.finalize()
+            _save_metrics(metrics, config, logger)
             return False
 
         logger.info(f"✓ {num_flights} vols extraits")
 
-        # Validation et flagging
+        # Phase 2 : Validation et flagging
         logger.info("Phase 2 : Validation et flagging...")
 
         df = validate_and_flag_flights(df, logger)
 
-        # Profil de qualité
+        # Phase 3 : Profil de qualité
         logger.info("Phase 3 : Profil de qualité...")
 
         quality_stats = profile_data_quality(df, logger)
+
+        valid_rows = quality_stats.get("valid_rows", 0)
+        on_ground = quality_stats.get("on_ground", 0)
+        on_flight = quality_stats.get("on_flight", 0)
+        metrics.set_validation(valid_rows, num_flights - valid_rows)
+        metrics.set_analysis(on_ground, on_flight)
+
+        pct_valid = (valid_rows / num_flights * 100) if num_flights > 0 else 0
+        if pct_valid < config.ALERT_THRESHOLD_PCT_VALID:
+            metrics.add_warning(
+                "low_quality",
+                f"Qualité {pct_valid:.1f}% < seuil {config.ALERT_THRESHOLD_PCT_VALID}%"
+            )
+
+        # Dimensions (cardinalités) — métriques sur les autres tables du modèle
+        unique_airlines = df.filter(col("airline_icao").isNotNull()).select("airline_icao").distinct().count()
+        unique_airports = (
+            df.select(col("origin_iata").alias("iata"))
+            .union(df.select(col("destination_iata").alias("iata")))
+            .filter(col("iata").isNotNull())
+            .distinct().count()
+        )
+        unique_aircraft = df.filter(col("aircraft_code").isNotNull()).select("aircraft_code").distinct().count()
+        metrics.set_dimension("dim_airlines", unique_airlines)
+        metrics.set_dimension("dim_airports", unique_airports)
+        metrics.set_dimension("dim_aircraft_models", unique_aircraft)
 
         # Sauvegarder le rapport de qualité
         if config.SAVE_QUALITY_REPORTS:
@@ -152,30 +201,20 @@ def run_batch(
             ))
             quality_report_dir.mkdir(parents=True, exist_ok=True)
 
-            report_file = quality_report_dir / f"quality_profile_{datetime.now().isoformat().replace(':', '')}.json"
+            report_file = quality_report_dir / f"quality_profile_{now.isoformat().replace(':', '')}.json"
             with open(report_file, "w") as f:
                 json.dump(quality_stats, f, indent=2, default=str)
 
             logger.info(f"✓ Quality report: {report_file}")
 
-        # Partitionnement
+        # Phase 4 : Partitionnement temporel (valeurs correctes via get_partition_values)
         logger.info("Phase 4 : Partitionnement temporel...")
 
-        now = datetime.now()
-        partition_values = get_partition_values(now)
-
-        df = df \
-            .withColumn("tech_year", col("extraction_timestamp").cast("int").cast("string")) \
-            .withColumn("tech_month", col("extraction_timestamp").cast("string")) \
-            .withColumn("tech_day", col("extraction_timestamp").cast("string")) \
-            .withColumn("tech_hour", col("extraction_timestamp").cast("string"))
-
-        # Ajouter les colonnes de partitionnement si pas déjà présentes
+        partition_values = get_partition_values(datetime.now())
         for col_name, val in partition_values.items():
-            if col_name not in df.columns:
-                df = df.withColumn(col_name, lit(val))
+            df = df.withColumn(col_name, lit(val))
 
-        # Chargement en Bronze
+        # Phase 5 : Chargement en Bronze
         logger.info("Phase 5 : Chargement en Bronze...")
 
         bronze_path = config.get_bronze_flights_path()
@@ -186,25 +225,35 @@ def run_batch(
 
         logger.info(f"✓ Données écrites en Bronze: {bronze_path}")
 
-        # Phase 6 : Transformation Silver + Gold (optionnel, selon flag)
-        if config.LOAD_SILVER_GOLD:
+        # Phase 6 : Transformation Silver + Gold (optionnel)
+        if with_silver_gold:
             logger.info("Phase 6 : Transformation Silver + Gold...")
+            start_phase = time.time()
 
             try:
                 loader = SilverGoldLoader(spark, config)
                 etl_result = loader.run_full_etl(bronze_path)
+
+                metrics.set_gold(len(etl_result['gold_kpis']), time.time() - start_phase)
+                for kpi_name, kpi_df in etl_result['gold_kpis'].items():
+                    metrics.set_kpi_result(kpi_name, kpi_df.count())
 
                 logger.info(f"✓ Silver : {etl_result['silver'].count()} rows")
                 logger.info(f"✓ Gold : {len(etl_result['gold_kpis'])} KPIs calculés")
 
             except Exception as e:
                 logger.warning(f"⚠️  Silver/Gold skipped due to error: {e}")
+                metrics.add_warning("silver_gold_error", str(e))
+
+        # Phase 7 : Métriques
+        metrics.finalize()
+        _save_metrics(metrics, config, logger)
 
         # Résumé final
         logger.info("="*70)
         logger.info("✅ Batch complété avec succès")
         logger.info(f"   Vols : {num_flights}")
-        logger.info(f"   Vols valides : {quality_stats.get('valid_rows', 0)}")
+        logger.info(f"   Vols valides : {valid_rows} ({pct_valid:.1f}%)")
         logger.info(f"   Chemin Bronze : {bronze_path}")
         logger.info("="*70)
 
@@ -212,7 +261,21 @@ def run_batch(
 
     except Exception as e:
         logger.error(f"❌ Erreur lors du batch : {e}", exc_info=True)
+        metrics.add_error("batch_error", str(e), phase="pipeline")
+        metrics.finalize()
+        _save_metrics(metrics, config, logger)
         return False
+
+
+def _save_metrics(metrics: JobMetrics, config: DatalakeConfig, logger: logging.Logger):
+    """Sauvegarder les métriques JSON dans LOG_PATH (lu par le dashboard)."""
+    try:
+        metrics_dir = Path(config.LOG_PATH)
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        path = metrics.save_to_json(str(metrics_dir / f"{metrics.batch_id}_metrics.json"))
+        logger.info(f"✓ Métriques sauvegardées : {path}")
+    except Exception as e:
+        logger.warning(f"⚠️  Impossible de sauvegarder les métriques : {e}")
 
 
 def main():
@@ -238,15 +301,9 @@ def main():
     )
 
     parser.add_argument(
-        "--dry-run",
+        "--with-silver-gold",
         action="store_true",
-        help="Mode dry-run : collecter et valider, mais pas écrire"
-    )
-
-    parser.add_argument(
-        "--single-batch",
-        action="store_true",
-        help="Exécuter un seul batch et quitter (par défaut : boucle infinie)"
+        help="Lancer aussi la transformation Silver + Gold (KPIs)"
     )
 
     parser.add_argument(
@@ -271,21 +328,22 @@ def main():
         logger.info("Job Spark Core Batch — Trafic aérien")
         logger.info(f"Datalake: {DatalakeConfig.DATALAKE_ROOT}")
         logger.info(f"Zones: {args.zones}")
-        logger.info(f"Dry-run: {args.dry_run}")
-        logger.info(f"Single batch: {args.single_batch}")
+        logger.info(f"Silver/Gold: {args.with_silver_gold}")
         logger.info("="*70)
 
-        # POC : une seule itération
-        success = run_batch(spark, DatalakeConfig, logger, zones=args.zones)
+        # Le job exécute UN batch puis se termine.
+        # La récurrence (toutes les 2h) est gérée par un scheduler externe
+        # (cron / Task Scheduler — voir SCHEDULING.md), pas par une boucle interne.
+        success = run_batch(
+            spark, DatalakeConfig, logger,
+            zones=args.zones,
+            with_silver_gold=args.with_silver_gold,
+        )
 
         if not success:
             logger.warning("⚠️  Batch échoué (données peuvent être incomplètes)")
 
-        if args.single_batch or True:  # POC : toujours quitter après 1 batch
-            logger.info("Mode single-batch : arrêt après 1 itération")
-            return 0 if success else 1
-
-        # TODO Phase 2 : boucle de streaming infinie avec scheduling
+        return 0 if success else 1
 
     except KeyboardInterrupt:
         logger.info("Arrêt demandé par l'utilisateur")

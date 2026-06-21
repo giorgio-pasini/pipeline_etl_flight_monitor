@@ -1049,16 +1049,23 @@ Créer le job ETL final qui exécute toutes les phases et l'orchestrer pour exé
 
 ## 7.2 Livrables
 
-**`scripts/run_job.py`** (500 lignes)
-- Orchestration complète du pipeline
-- 5 phases :
+**Architecture unifiée :** toute la logique du pipeline vit dans
+`src/batch_job.py::run_batch` (point d'entrée unique). `scripts/run_job.py`
+n'est qu'un **wrapper CLI mince** qui appelle `run_batch`. Il n'y a plus de
+duplication de logique ni de fichier `streaming_job.py` (supprimé).
+
+**`src/batch_job.py::run_batch`** — pipeline complet, 7 phases :
   1. Extraction (API → DataFrame)
-  2. Validation + Data Quality + Analysis
-  3. Load Bronze
-  4. Silver + Gold (optionnel)
-  5. Métriques + Logs
+  2. Validation + flagging qualité
+  3. Profil qualité + analyse (en vol/au sol) + cardinalités dimensions
+  4. Partitionnement temporel (valeurs correctes via `get_partition_values`)
+  5. Écriture Bronze
+  6. Silver + Gold (optionnel, `--with-silver-gold` ou `LOAD_SILVER_GOLD`)
+  7. Métriques JSON (consommées par le dashboard)
 - Logging détaillé + résumé console
-- Gestion d'erreurs fault-tolerant
+- Fault-tolerant (toute exception → `False`, métriques sauvegardées)
+
+**`scripts/run_job.py`** (~90 lignes) — wrapper CLI autour de `run_batch`
 
 **`scripts/schedule_job.sh`** (Linux/macOS)
 - Installer/lister/supprimer cron jobs
@@ -1105,14 +1112,83 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
 
 ---
 
-**Prochaines étapes :** 
+# Étape 8 : Revue de code & corrections (hardening)
 
-- **Étape 8** : Dashboard avancé (optionnel)
-- **Étape 9** : Gestion des erreurs (fault-tolerance "loud")
+## 8.1 Contexte
+
+Une revue complète du codebase a révélé que les étapes 4-7 avaient été générées
+sans ré-exécution ni vérification d'intégration avec les étapes 1-3. Symptôme
+principal : **deux jobs divergents** (`batch_job.py` et `run_job.py`) appelant
+les mêmes fonctions avec des signatures incompatibles. Le « job final »
+(`run_job.py`) ne pouvait pas s'exécuter.
+
+## 8.2 Corrections critiques (plantages)
+
+1. **Unification du job** : `src/streaming_job.py` (duplicata obsolète) supprimé.
+   Toute la logique est consolidée dans `batch_job.py::run_batch` ;
+   `run_job.py` devient un wrapper CLI mince.
+2. **`extract_flights_batch`** : `run_job.py` passait une `list` au lieu d'un
+   `dict` de config et dépaquetait un tuple inexistant → corrigé via l'appel
+   unifié à `run_batch`.
+3. **Paramètre logger** : `validate_and_flag_flights` / `profile_data_quality`
+   utilisaient `logger_obj` alors que tous les appelants passaient `logger=` →
+   paramètre renommé en `logger`.
+4. **Partitionnement Bronze corrompu** : `batch_job.py` castait
+   `extraction_timestamp` en epoch/string (tech_year = epoch, month/day/hour
+   identiques) → remplacé par `get_partition_values()` (valeurs correctes).
+   `run_job.py` ne créait même pas les colonnes de partition.
+
+## 8.3 Corrections élevées (comportement faux silencieux)
+
+5. **Clés de métriques** : `quality_stats.get('on_ground_rows')` (clé
+   inexistante) → utilisation de la vraie clé `on_ground`.
+6. **KPIs jamais enregistrés** : `kpi_name.replace("_","")` cassait la clé →
+   `set_kpi_result` reçoit désormais le nom correct.
+7. **`cleanup_old_partitions`** : `Path.walk()` (Python 3.12+) rendait la purge
+   silencieusement inopérante sur Python < 3.12 → remplacé par `os.walk()`.
+   Signature assouplie (`datalake_path` optionnel).
+8. **Continents codés en dur "EU"** : remplacé par un vrai mapping
+   `COUNTRY_TO_CONTINENT` (ISO alpha-2 → continent) dans `src/reference_data.py`.
+9. **Constructeur = modèle** : KPI 5 groupait par `aircraft_model` au lieu du
+   constructeur → vrai mapping `AIRCRAFT_PREFIX_TO_MANUFACTURER` + distance
+   haversine réelle (au lieu de l'approximation euclidienne).
+
+## 8.4 Cohérence & nettoyage
+
+- Signatures `build_partition_path(base, table, timestamp)` et
+  `parse_partition_path → dict` alignées avec leurs usages/tests.
+- `check_missing_enrichment` : recalcul de `is_valid` corrigé (préserve les
+  critères d'origine).
+- Imports inutilisés supprimés (`yaml`, `math`, `Path`, fonctions Spark mortes).
+- Smell `if args.single_batch or True:` supprimé ; récurrence = scheduler externe.
+
+## 8.5 Nouveaux livrables
+
+**`src/reference_data.py`** — données de référence (pays→continent,
+préfixe avion→constructeur) + helpers d'expressions Spark.
+
+## 8.6 Tests
+
+- **Environnement** : `conftest.py` force `PYSPARK_PYTHON`/`PYSPARK_DRIVER_PYTHON`
+  sur l'interpréteur courant (corrige « Python worker failed to connect back »
+  sous Windows). Helper `make_mock_flight()` mutualisé (tous les attributs typés).
+- **Tests corrigés** : fixtures (`dict_values` → liste de dicts), signatures.
+- **Nouveaux tests** : `test_transformations.py` (Silver + KPIs, lacune critique
+  comblée), `test_reference_data.py` (mappings continent/constructeur).
+- Tests d'intégration renforcés : assertion `success is True` (chemin nominal
+  réellement exercé, plus seulement le chemin d'erreur).
+
+**Status :** ✅ Codebase durci, pipeline exécutable de bout en bout, tests verts
 
 ---
 
-## Résumé global (Étapes 1-7 complétées)
+**Prochaines étapes :** 
+
+- **Étape 9** : Gestion des erreurs avancée (retries API, alerting)
+
+---
+
+## Résumé global (Étapes 1-8 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1124,8 +1200,8 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
 | 5 | Optimisation partitionnement | `src/partitioning_optimizer.py`, `scripts/profile_partitions.py`, `config/spark_tuning.py`, `PARTITIONING.md` | ✅ |
 | 6 | Logging & Monitoring | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` | ✅ |
 | 7 | Job final + Scheduling | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` | ✅ |
-| 8 | Amélioration Dashboard | À implémenter | 🔲 |
-| 9 | Fault-tolerance & gestion erreurs | À implémenter | 🔲 |
+| 8 | Revue de code & corrections | `src/reference_data.py`, `tests/unit/test_transformations.py`, `tests/unit/test_reference_data.py` + corrections globales | ✅ |
+| 9 | Fault-tolerance avancée (retries, alerting) | À implémenter | 🔲 |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)
@@ -1136,14 +1212,15 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
 - ✅ Optimiseur de partitionnement (analyser + profiler + recommander)
 - ✅ 4 profils Spark optimisés (POC, BATCH, ANALYTICS, PRODUCTION)
 - ✅ Logging & Metrics simples avec Streamlit dashboard
-- ✅ Job ETL final opérationnel (5 phases orchestrées)
+- ✅ Job ETL final unifié (`batch_job.run_batch`, 7 phases) + wrapper CLI
 - ✅ Scheduling automatique (Cron + Task Scheduler)
+- ✅ Données de référence réelles (continents, constructeurs)
 - ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md, LOGGING.md, SCHEDULING.md)
 - ✅ Schémas Spark + data quality checks
-- ✅ Suite de tests équilibrée (~28 tests : unit + integration + E2E)
+- ✅ Suite de tests étendue (unit + integration + E2E, incl. transformations)
 - ✅ Journal développement complet (documentation_dev.md)
 
-**Prochaine priorité :** Étape 8 (Dashboard avancé - optionnel) ou Étape 9 (Fault-tolerance)
+**Prochaine priorité :** Étape 9 (Fault-tolerance avancée : retries API, alerting)
 
 ---
 

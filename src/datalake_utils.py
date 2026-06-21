@@ -9,8 +9,9 @@ Fournit :
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional
 import logging
+import os
 import shutil
 import re
 
@@ -45,12 +46,13 @@ def get_partition_values(timestamp: datetime) -> dict:
     }
 
 
-def build_partition_path(base_path: str, timestamp: datetime) -> str:
+def build_partition_path(base_path, table_name: str, timestamp: datetime) -> str:
     """
-    Construire un chemin partitionné complet pour une timestamp donnée.
+    Construire un chemin partitionné complet pour une table et une timestamp.
 
     Args:
-        base_path: chemin de base (ex: "datalake/bronze/flights_raw")
+        base_path: chemin de la couche (ex: "datalake/bronze")
+        table_name: nom de la table (ex: "flights_raw")
         timestamp: datetime
 
     Returns:
@@ -58,11 +60,11 @@ def build_partition_path(base_path: str, timestamp: datetime) -> str:
         (ex: "datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/...")
 
     Example:
-        >>> build_partition_path("datalake/bronze/flights_raw", datetime(2026, 6, 21, 14))
+        >>> build_partition_path("datalake/bronze", "flights_raw", datetime(2026, 6, 21, 14))
         "datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14"
     """
     parts = get_partition_values(timestamp)
-    path = base_path
+    path = f"{base_path}/{table_name}"
     for col in ["tech_year", "tech_month", "tech_day", "tech_hour"]:
         path = f"{path}/{col}={parts[col]}"
     return path
@@ -83,20 +85,19 @@ def build_partition_path_gold_kpi(base_path: str, kpi_date: str, kpi_hour: int) 
     return f"{base_path}/kpi_date={kpi_date}/kpi_hour={kpi_hour:02d}"
 
 
-def parse_partition_path(full_path: str) -> Optional[Tuple[str, dict]]:
+def parse_partition_path(full_path: str) -> Optional[dict]:
     """
-    Parser un chemin partitionné pour extraire table + partitions.
+    Parser un chemin partitionné pour extraire les valeurs de partition.
 
     Args:
         full_path: chemin avec partitions (ex: "datalake/bronze/flights_raw/tech_year=2026/...")
 
     Returns:
-        (base_table_name, {tech_year: "2026", tech_month: "2026-06", ...})
-        ou None si parse échoue
+        dict {tech_year: "2026", tech_month: "2026-06", ...} ou None si aucune partition
 
     Example:
         >>> parse_partition_path("datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14")
-        ("flights_raw", {"tech_year": "2026", "tech_month": "2026-06", ...})
+        {"tech_year": "2026", "tech_month": "2026-06", "tech_day": "2026-06-21", "tech_hour": "14"}
     """
     # Regex : extraire les partitions key=value
     pattern = r"([a-z_]+)=([a-zA-Z0-9\-]+)"
@@ -105,15 +106,7 @@ def parse_partition_path(full_path: str) -> Optional[Tuple[str, dict]]:
     if not matches:
         return None
 
-    partitions = {k: v for k, v in matches}
-
-    # Table name = dernière partie avant les partitions
-    table_part = full_path.split("/")[-5]  # Assuming tech_year=... is 4 levels deep
-    for table_candidate in ["flights_raw", "fact_flights", "dim_airlines", "dim_airports"]:
-        if table_candidate in full_path:
-            return (table_candidate, partitions)
-
-    return None
+    return {k: v for k, v in matches}
 
 
 def get_partition_datetime(partition_dict: dict) -> Optional[datetime]:
@@ -138,16 +131,16 @@ def get_partition_datetime(partition_dict: dict) -> Optional[datetime]:
 
 
 def cleanup_old_partitions(
-    datalake_path: str,
-    layer: str,  # "bronze", "silver", "gold"
-    retention_days: int,
+    datalake_path: Optional[str] = None,
+    layer: str = "bronze",  # "bronze", "silver", "gold"
+    retention_days: int = 30,
     dry_run: bool = True,
 ) -> dict:
     """
     Supprimer les partitions antérieures à retention_days.
 
     Args:
-        datalake_path: racine du datalake
+        datalake_path: racine du datalake (défaut: DatalakeConfig.DATALAKE_ROOT)
         layer: "bronze", "silver" ou "gold"
         retention_days: nombre de jours à conserver
         dry_run: si True, ne pas supprimer, juste lister
@@ -165,6 +158,10 @@ def cleanup_old_partitions(
             "dry_run": False
         }
     """
+    if datalake_path is None:
+        from config.datalake_config import DatalakeConfig
+        datalake_path = DatalakeConfig.DATALAKE_ROOT
+
     layer_path = Path(datalake_path) / layer
     if not layer_path.exists():
         logger.warning(f"Chemin non trouvé : {layer_path}")
@@ -174,10 +171,10 @@ def cleanup_old_partitions(
     deleted_count = 0
     freed_bytes = 0
 
-    # Chercher tous les dossiers tech_day ou kpi_date
+    # Chercher tous les dossiers tech_day ou kpi_date (os.walk : compatible Python < 3.12)
     date_pattern = r"(tech_day|kpi_date)=(\d{4}-\d{2}-\d{2})"
 
-    for root, dirs, files in layer_path.walk() if hasattr(layer_path, 'walk') else [(layer_path, [], [])]:
+    for root, dirs, files in os.walk(str(layer_path)):
         for dir_name in dirs:
             match = re.search(date_pattern, dir_name)
             if match:
@@ -208,18 +205,18 @@ def cleanup_old_partitions(
     }
 
 
-def list_partitions(datalake_path: str, table_name: str) -> list:
+def list_partitions(datalake_path: str, table_name: str = "") -> list:
     """
     Lister toutes les partitions existantes pour une table.
 
     Args:
-        datalake_path: racine du datalake
-        table_name: nom complet du chemin (ex: "bronze/flights_raw")
+        datalake_path: racine du datalake (ou chemin de couche)
+        table_name: nom relatif de la table (ex: "bronze/flights_raw"). Optionnel.
 
     Returns:
         list de dicts {tech_year, tech_month, tech_day, tech_hour} ou []
     """
-    table_path = Path(datalake_path) / table_name
+    table_path = Path(datalake_path) / table_name if table_name else Path(datalake_path)
     if not table_path.exists():
         return []
 
@@ -276,7 +273,7 @@ if __name__ == "__main__":
 
     ts = datetime(2026, 6, 21, 14, 30, 0)
     print(f"Partition values: {get_partition_values(ts)}")
-    print(f"Full path: {build_partition_path('datalake/bronze/flights_raw', ts)}")
+    print(f"Full path: {build_partition_path('datalake/bronze', 'flights_raw', ts)}")
 
     kpi_path = build_partition_path_gold_kpi("datalake/gold/kpi_airline_volumes", "2026-06-21", 14)
     print(f"Gold KPI path: {kpi_path}")

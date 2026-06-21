@@ -217,15 +217,26 @@ class JobMetrics:
         return summary
 
     @staticmethod
-    def load_all_metrics(logs_dir: str = "datalake/_logs") -> list:
+    def load_all_metrics(logs_dir: str = None) -> list:
         """
         Charger tous les fichiers de métriques.
+
+        Args:
+            logs_dir: dossier des logs (défaut: DatalakeConfig.LOG_PATH)
 
         Returns:
             Liste de dictionnaires de métriques (triés par date décroissante)
         """
+        if logs_dir is None:
+            try:
+                from config.datalake_config import DatalakeConfig
+                logs_dir = DatalakeConfig.LOG_PATH
+            except Exception:
+                logs_dir = "datalake/_logs"
+
+        # rglob : robuste si les métriques sont dans un sous-dossier
         metrics_files = sorted(
-            Path(logs_dir).glob("*_metrics.json"),
+            Path(logs_dir).rglob("*_metrics.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )

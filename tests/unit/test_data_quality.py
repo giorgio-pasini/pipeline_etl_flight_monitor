@@ -41,14 +41,10 @@ class TestDataQualityFlags:
 
     def test_invalid_altitude_flag(self, spark_session, sample_flight_dict_invalid):
         """Un vol avec altitude négative doit avoir le flag INVALID_ALTITUDE."""
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            [sample_flight_dict_invalid.values()],
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [sample_flight_dict_invalid],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
@@ -56,6 +52,10 @@ class TestDataQualityFlags:
         # Devrait avoir is_valid = False
         invalid_count = result.filter(col("is_valid") == False).count()
         assert invalid_count > 0
+
+        # Et le flag INVALID_ALTITUDE doit être présent (altitude = -100)
+        flagged = result.filter(col("data_quality_flags").contains("INVALID_ALTITUDE")).count()
+        assert flagged > 0
 
     def test_is_valid_logic(self, spark_session, sample_flight_dict):
         """is_valid doit être True seulement si aucun flag et données valides."""
@@ -91,16 +91,10 @@ class TestQualityProfiling:
 
     def test_profile_counts_valid_invalid(self, spark_session, sample_flight_dict, sample_flight_dict_invalid):
         """Le profil doit compter les vols valides et invalides."""
-        data = [sample_flight_dict.values(), sample_flight_dict_invalid.values()]
-
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            data,
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [sample_flight_dict, sample_flight_dict_invalid],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
@@ -108,4 +102,6 @@ class TestQualityProfiling:
 
         assert profile is not None
         # Le profil doit indiquer qu'il y a des données
-        assert profile.get('total_rows', 0) >= 1
+        assert profile.get('total_rows', 0) == 2
+        # 1 vol valide, 1 invalide
+        assert profile.get('valid_rows', 0) == 1

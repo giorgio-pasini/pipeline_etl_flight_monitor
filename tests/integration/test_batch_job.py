@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from pathlib import Path
 from src.batch_job import run_batch, create_spark_session
 from config.datalake_config import DatalakeConfig
+from tests.conftest import make_mock_flight
 
 
 class TestBatchJobIntegration:
@@ -20,8 +21,11 @@ class TestBatchJobIntegration:
 
         spark.stop()
 
-    def test_batch_job_with_mock_api(self, spark_session, temp_datalake):
+    def test_batch_job_with_mock_api(self, spark_session, temp_datalake, parquet_write_supported):
         """Tester le batch job complet avec API mockée."""
+        if not parquet_write_supported:
+            pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
+
         logger = logging.getLogger(__name__)
 
         with patch('src.flight_extraction.FlightRadar24API') as mock_api_class:
@@ -29,28 +33,19 @@ class TestBatchJobIntegration:
             mock_api = Mock()
             mock_api_class.return_value = mock_api
 
-            # Mock un vol
-            mock_flight = Mock()
-            mock_flight.callsign = "DLH123"
-            mock_flight.flight_number = "DL123"
-            mock_flight.latitude = 48.7
-            mock_flight.longitude = 2.5
-            mock_flight.altitude = 10000.0
-            mock_flight.ground_speed = 450.0
-            mock_flight.heading = 90.0
-            mock_flight.on_ground = 0
-            mock_flight.vertical_speed = 100.0
-            mock_flight.airline_icao = "DAL"
-            mock_flight.origin_iata = "CDG"
-            mock_flight.destination_iata = "ORY"
-            mock_flight.aircraft_code = "B737"
-            mock_flight.registration = "N1234AA"
-            mock_flight.flight_id = "ABC123"
+            # Mock un vol valide (tous attributs typés)
+            mock_flight = make_mock_flight(
+                id="ABC123", callsign="DLH123", number="DL123",
+                airline_icao="DAL", aircraft_code="B738", registration="N1234AA",
+                origin_airport_iata="CDG", destination_airport_iata="JFK",
+                latitude=48.7, longitude=2.5, altitude=10000.0,
+                ground_speed=450.0, heading=90.0, on_ground=0, vertical_speed=100.0,
+                origin_airport_country_code="FR", destination_airport_country_code="US",
+                origin_airport_latitude=49.0, origin_airport_longitude=2.55,
+                destination_airport_latitude=40.6, destination_airport_longitude=-73.8,
+            )
 
             mock_api.get_flights.return_value = [mock_flight]
-
-            # Run batch
-            from src.batch_job import run_batch
 
             success = run_batch(
                 spark_session,
@@ -59,8 +54,8 @@ class TestBatchJobIntegration:
                 zones=["global"]
             )
 
-            # Doit retourner True ou False, pas crasher
-            assert isinstance(success, bool)
+            # Le batch doit réussir (chemin nominal complet)
+            assert success is True
 
     def test_batch_job_empty_api_response(self, spark_session, temp_datalake):
         """Tester le batch job avec une réponse API vide."""
@@ -116,52 +111,35 @@ class TestBatchJobIntegration:
 class TestBatchJobFaultTolerance:
     """Tests pour la résilience du batch job."""
 
-    def test_batch_continues_on_partial_failure(self, spark_session, temp_datalake):
+    def test_batch_continues_on_partial_failure(self, spark_session, temp_datalake, parquet_write_supported):
         """Le batch doit continuer même avec des données partielles."""
+        if not parquet_write_supported:
+            pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
+
         logger = logging.getLogger(__name__)
 
         with patch('src.flight_extraction.FlightRadar24API') as mock_api_class:
             mock_api = Mock()
             mock_api_class.return_value = mock_api
 
-            # Vol valide + vol invalide
-            valid_flight = Mock()
-            valid_flight.callsign = "DLH123"
-            valid_flight.flight_number = "DL123"
-            valid_flight.latitude = 48.7
-            valid_flight.longitude = 2.5
-            valid_flight.altitude = 10000.0
-            valid_flight.ground_speed = 450.0
-            valid_flight.heading = 90.0
-            valid_flight.on_ground = 0
-            valid_flight.vertical_speed = 100.0
-            valid_flight.airline_icao = "DAL"
-            valid_flight.origin_iata = "CDG"
-            valid_flight.destination_iata = "ORY"
-            valid_flight.aircraft_code = "B737"
-            valid_flight.registration = "N1234AA"
-            valid_flight.flight_id = "ABC123"
+            # Vol valide + vol invalide (données manquantes / altitude négative)
+            valid_flight = make_mock_flight(
+                id="ABC123", callsign="DLH123", number="DL123",
+                airline_icao="DAL", aircraft_code="B738", registration="N1234AA",
+                origin_airport_iata="CDG", destination_airport_iata="JFK",
+                latitude=48.7, longitude=2.5, altitude=10000.0,
+                ground_speed=450.0, heading=90.0, on_ground=0, vertical_speed=100.0,
+            )
 
-            invalid_flight = Mock()
-            invalid_flight.callsign = "BAD999"
-            invalid_flight.flight_number = "BAD999"
-            invalid_flight.latitude = 0.0
-            invalid_flight.longitude = 0.0
-            invalid_flight.altitude = -100.0  # Invalid
-            invalid_flight.ground_speed = 450.0
-            invalid_flight.heading = 90.0
-            invalid_flight.on_ground = 0
-            invalid_flight.vertical_speed = 100.0
-            invalid_flight.airline_icao = None  # Missing
-            invalid_flight.origin_iata = None  # Missing
-            invalid_flight.destination_iata = "ORY"
-            invalid_flight.aircraft_code = None
-            invalid_flight.registration = "UNKNOWN"
-            invalid_flight.flight_id = "XYZ999"
+            invalid_flight = make_mock_flight(
+                id="XYZ999", callsign="BAD999", number="BAD999",
+                airline_icao=None, origin_airport_iata=None,
+                destination_airport_iata="ORY",
+                latitude=0.0, longitude=0.0, altitude=-100.0,  # altitude invalide
+                ground_speed=450.0, heading=90.0, on_ground=0, vertical_speed=100.0,
+            )
 
             mock_api.get_flights.return_value = [valid_flight, invalid_flight]
-
-            from src.batch_job import run_batch
 
             success = run_batch(
                 spark_session,
@@ -170,5 +148,5 @@ class TestBatchJobFaultTolerance:
                 zones=["global"]
             )
 
-            # Doit continuer même avec données mixtes
-            assert isinstance(success, bool)
+            # Doit continuer (fault-tolerant) et réussir malgré le vol invalide
+            assert success is True

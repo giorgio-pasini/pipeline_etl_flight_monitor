@@ -96,7 +96,7 @@ class FlightExtractor:
     def flights_to_dicts(
         self,
         flights: List[Any],
-        batch_id: str,
+        batch_id: Optional[str] = None,
         zone_name: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -104,12 +104,15 @@ class FlightExtractor:
 
         Args:
             flights: Liste d'objets FlightRadarAPI.Flight
-            batch_id: Identifiant du batch (pour traçabilité)
+            batch_id: Identifiant du batch (pour traçabilité). Généré si absent.
             zone_name: Nom de la zone (pour métadonnées)
 
         Returns:
             Liste de dicts prêts pour un DataFrame Spark
         """
+
+        if batch_id is None:
+            batch_id = str(uuid.uuid4())[:8]
 
         dicts = []
         timestamp = datetime.utcnow()

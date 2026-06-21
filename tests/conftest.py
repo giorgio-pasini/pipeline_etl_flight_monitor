@@ -2,18 +2,55 @@
 Fixtures partagées pour tous les tests.
 """
 
+import os
+import sys
 import pytest
 from pathlib import Path
-import tempfile
-from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
 from datetime import datetime
 
+# IMPORTANT : sur Windows, les workers PySpark doivent pouvoir retrouver
+# l'exécutable Python. Sans cela, Spark échoue avec "Python worker failed to
+# connect back" (l'alias d'exécution Windows intercepte `python`).
+# On force PYSPARK_PYTHON / PYSPARK_DRIVER_PYTHON sur l'interpréteur courant.
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+
+from pyspark.sql import SparkSession
+
 # Import local
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.datalake_config import DatalakeConfig
+
+
+# Tous les attributs lus par FlightExtractor.flights_to_dicts (vrais noms FlightRadarAPI)
+FLIGHT_ATTRS = [
+    "id", "callsign", "number", "airline_icao", "airline_iata", "aircraft_code",
+    "registration", "origin_airport_iata", "destination_airport_iata",
+    "latitude", "longitude", "altitude", "ground_speed", "heading",
+    "on_ground", "vertical_speed", "icao_24bit",
+    "aircraft_model", "airline_name", "origin_airport_name",
+    "origin_airport_country_code", "origin_airport_country_name",
+    "origin_airport_latitude", "origin_airport_longitude",
+    "destination_airport_name", "destination_airport_country_code",
+    "destination_airport_country_name", "destination_airport_latitude",
+    "destination_airport_longitude", "status_text",
+]
+
+
+def make_mock_flight(**overrides):
+    """Créer un Mock de vol avec TOUS les attributs lus (None par défaut).
+
+    Évite les fuites d'objets Mock qui font échouer le typage Spark.
+    """
+    from unittest.mock import Mock
+    flight = Mock()
+    for attr in FLIGHT_ATTRS:
+        setattr(flight, attr, None)
+    flight.id = "FID000"  # flight_id non-nullable dans le schéma
+    for k, v in overrides.items():
+        setattr(flight, k, v)
+    return flight
 
 
 @pytest.fixture(scope="session")
@@ -31,6 +68,22 @@ def spark_session():
     yield spark
 
     spark.stop()
+
+
+@pytest.fixture(scope="session")
+def parquet_write_supported(spark_session, tmp_path_factory):
+    """True si Spark peut écrire du Parquet localement.
+
+    Sous Windows sans HADOOP_HOME/winutils.exe, l'écriture Parquet échoue
+    (limitation connue de Spark-sur-Windows, pas un bug du pipeline). On le
+    détecte une fois pour permettre aux tests d'écriture de se *skip* proprement.
+    """
+    check_path = tmp_path_factory.mktemp("pq_check") / "probe"
+    try:
+        spark_session.range(1).write.mode("overwrite").parquet(str(check_path))
+        return True
+    except Exception:
+        return False
 
 
 @pytest.fixture(scope="function")
@@ -142,9 +195,10 @@ def sample_flights_dataframe(spark_session, sample_flight_dict):
     """DataFrame Spark avec quelques vols de test."""
     from src.schemas import schema_flights_raw
 
-    data = [sample_flight_dict.values()]
+    # Passer une liste de dicts (robuste à l'ordre des colonnes) plutôt que
+    # dict_values, que Spark refuse.
     df = spark_session.createDataFrame(
-        data,
+        [sample_flight_dict],
         schema=schema_flights_raw
     )
 

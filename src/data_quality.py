@@ -7,17 +7,17 @@ Philosophie :
 - Ajouter des flags explicites (data_quality_flags) pour traçabilité downstream
 """
 
-from pyspark.sql import DataFrame, Window
+from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, when, concat_ws, length, isnan, isnull, coalesce,
-    lit, upper, trim, regexp_replace, expr
+    col, when, concat_ws, length, coalesce,
+    lit, upper, trim, expr
 )
 import logging
 
-logger = logging.getLogger(__name__)
+_module_logger = logging.getLogger(__name__)
 
 
-def validate_and_flag_flights(df: DataFrame, logger_obj=None) -> DataFrame:
+def validate_and_flag_flights(df: DataFrame, logger=None) -> DataFrame:
     """
     Valide les vols et ajoute des flags de qualité.
 
@@ -37,13 +37,13 @@ def validate_and_flag_flights(df: DataFrame, logger_obj=None) -> DataFrame:
 
     Args:
         df: DataFrame avec schéma flights_raw
-        logger_obj: logger instance (optionnel)
+        logger: logger instance (optionnel)
 
     Returns:
         DataFrame enrichi avec colonnes de qualité
     """
 
-    log = logger_obj or logger
+    log = logger if logger is not None else _module_logger
 
     # Normalize: trimmer et uppercase les codes
     df = df \
@@ -164,7 +164,7 @@ def validate_and_flag_flights(df: DataFrame, logger_obj=None) -> DataFrame:
     return df
 
 
-def check_missing_enrichment(df: DataFrame, logger_obj=None) -> DataFrame:
+def check_missing_enrichment(df: DataFrame, logger=None) -> DataFrame:
     """
     Vérifie que les colonnes d'enrichissement (country, continent, etc.) sont présentes
     et complètes. Les ajoute à data_quality_flags si manquantes.
@@ -175,7 +175,7 @@ def check_missing_enrichment(df: DataFrame, logger_obj=None) -> DataFrame:
     - MISSING_AIRLINE_NAME: airline_name absent (optionnel, warning)
     """
 
-    log = logger_obj or logger
+    log = logger if logger is not None else _module_logger
 
     # Vérifier que les colonnes enrichissement existent
     required_enrichment = [
@@ -213,16 +213,17 @@ def check_missing_enrichment(df: DataFrame, logger_obj=None) -> DataFrame:
     df = df.withColumn("data_quality_flags",
                        when(new_flags == "", None).otherwise(new_flags))
 
-    # Recompute is_valid si des flags sont ajoutés
+    # Recompute is_valid : un vol reste valide seulement s'il l'était déjà
+    # (critères on_ground/route/airline) ET qu'aucun flag n'a été ajouté.
     df = df.withColumn(
         "is_valid",
-        when(col("data_quality_flags").isNull(), True).otherwise(False)
+        when(col("data_quality_flags").isNull() & col("is_valid"), True).otherwise(False)
     )
 
     return df
 
 
-def profile_data_quality(df: DataFrame, logger_obj=None) -> dict:
+def profile_data_quality(df: DataFrame, logger=None) -> dict:
     """
     Profil complet de la qualité des données.
 
@@ -230,7 +231,7 @@ def profile_data_quality(df: DataFrame, logger_obj=None) -> dict:
         dict avec statistiques détaillées
     """
 
-    log = logger_obj or logger
+    log = logger if logger is not None else _module_logger
 
     total = df.count()
     if total == 0:

@@ -8,7 +8,6 @@ Gold : Tables KPI agrégées
 import logging
 from pyspark.sql import SparkSession, DataFrame
 from datetime import datetime
-from pathlib import Path
 
 from .transformations import (
     clean_and_enrich_bronze,

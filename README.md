@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 7 étapes complétées (78% avancement), Pipeline complet + production-ready  
+**Statut :** 8 étapes complétées, pipeline unifié, durci et testé de bout en bout  
 **Date :** 2026-06-21
 
 ---
@@ -222,7 +222,7 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 | 5 | Optimisation partitionnement | ✅ | `src/partitioning_optimizer.py`, `PARTITIONING.md` |
 | 6 | Logging & Monitoring | ✅ | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` |
 | 7 | Job final + Scheduling | ✅ | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` |
-| 8 | Amélioration Dashboard | 🔲 | À faire |
+| 8 | Revue de code & corrections | ✅ | `src/reference_data.py`, `tests/unit/test_transformations.py`, corrections globales |
 | 9 | Fault-tolerance avancée | 🔲 | À faire |
 
 ---
@@ -256,11 +256,12 @@ streamlit run dashboard.py
 
 **Complétée !**
 
-- **`scripts/run_job.py`** : Job ETL final complet
-  - Orchestration 5 phases (Extraction → Validation → Bronze → Silver/Gold → Métriques)
+- **`src/batch_job.py::run_batch`** : pipeline complet unifié (point d'entrée unique)
+  - 7 phases (Extraction → Validation → Profil/Analyse → Partition → Bronze → Silver/Gold → Métriques)
   - Logging détaillé + résumé console
   - Fault-tolerant (continue même en cas d'erreur)
   - Enregistre métriques JSON + logs
+- **`scripts/run_job.py`** : wrapper CLI mince autour de `run_batch` (zéro duplication)
 
 - **`scripts/schedule_job.sh`** : Scheduler Linux/macOS (Cron)
   - Installer/lister/supprimer jobs
@@ -294,7 +295,23 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
 
 **Schedule :** Every 2 hours (00:00, 02:00, 04:00, ..., 22:00) = 12 executions/day
 
-### Étape 8 : Amélioration Dashboard (optionnel)
+### Étape 8 : Revue de code & corrections ✅
+
+**Complétée !** Revue complète ayant corrigé les anomalies d'intégration des étapes 4-7 :
+
+- **Unification du job** : suppression de `streaming_job.py` (duplicata), toute la
+  logique dans `batch_job.run_batch`, `run_job.py` réduit à un wrapper CLI.
+- **Bugs critiques corrigés** : appel `extract_flights_batch`, paramètre `logger`,
+  partitionnement Bronze (valeurs correctes), colonnes de partition manquantes.
+- **Comportements faux corrigés** : clés de métriques, enregistrement des KPIs,
+  purge de partitions (`os.walk`, compatible Python < 3.12).
+- **Données de référence réelles** (`src/reference_data.py`) : continents (ISO→continent)
+  et constructeurs (préfixe avion→constructeur) remplacent les placeholders ; distance
+  haversine réelle.
+- **Tests** : env Spark fiabilisé (`PYSPARK_PYTHON`), tests corrigés, **nouveaux tests
+  Silver/Gold** (`test_transformations.py`) et données de référence.
+
+### Étape 9 : Amélioration Dashboard & Fault-tolerance (optionnel)
 - Détails par KPI (drill-down)
 - Export rapports complets
 - Real-time updates
