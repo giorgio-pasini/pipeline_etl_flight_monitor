@@ -1,0 +1,302 @@
+"""
+Extraction des données de l'API FlightRadarAPI.
+
+Fournit les fonctions pour :
+- Collecter les vols par zone (ou globalement)
+- Enrichir les vols avec get_flight_details()
+- Formater en DataFrames Spark
+- Gérer les erreurs et timeouts
+
+À utiliser depuis le job Spark Core Batch.
+"""
+
+import logging
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from FlightRadarAPI import FlightRadar24API
+from FlightRadarAPI.core import Countries
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql.types import StructType
+from pyspark.sql.functions import col, lit, current_timestamp
+
+from schemas import schema_flights_raw
+
+logger = logging.getLogger(__name__)
+
+
+class FlightExtractor:
+    """Classe d'extraction des vols depuis l'API FlightRadarAPI."""
+
+    def __init__(self, timeout_seconds: int = 30, max_workers: int = 8):
+        """
+        Initialiser l'extracteur.
+
+        Args:
+            timeout_seconds: Timeout pour chaque appel API
+            max_workers: Nombre de threads parallèles pour enrichissement
+        """
+        self.api = FlightRadar24API(timeout=timeout_seconds, max_workers=max_workers)
+        self.timeout_seconds = timeout_seconds
+        self.max_workers = max_workers
+        self.logger = logging.getLogger(__name__)
+
+    def get_flights_for_zone(
+        self,
+        zone_name: Optional[str] = None,
+        airline: Optional[str] = None,
+        aircraft_type: Optional[str] = None,
+        enrich: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Collecter les vols pour une zone donnée.
+
+        Args:
+            zone_name: Nom de la zone ("europe", "northamerica", etc.) ou None pour global
+            airline: Filtre ICAO (ex: "DL" pour Delta)
+            aircraft_type: Filtre type avion (ex: "B737")
+            enrich: Si True, appeler get_flight_details() pour chaque vol
+
+        Returns:
+            Liste de dicts avec données de vol
+
+        Raises:
+            Exception si l'API échoue (logged, pas re-raised pour fault-tolerance)
+        """
+
+        try:
+            bounds = None
+            if zone_name:
+                zones = self.api.get_zones()
+                if zone_name not in zones:
+                    self.logger.warning(f"Zone inconnue: {zone_name}")
+                    return []
+                bounds = self.api.get_bounds(zones[zone_name])
+
+            flights = self.api.get_flights(
+                bounds=bounds,
+                airline=airline,
+                aircraft_type=aircraft_type,
+                details=enrich  # Utiliser le paramètre details pour paralléliser
+            )
+
+            self.logger.info(
+                f"Collecté {len(flights)} vols "
+                f"(zone={zone_name or 'global'}, enriched={enrich})"
+            )
+
+            return flights
+
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la collecte (zone={zone_name}): {e}")
+            return []
+
+    def flights_to_dicts(
+        self,
+        flights: List[Any],
+        batch_id: str,
+        zone_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Convertir des objets Flight en dictionnaires plats pour Spark.
+
+        Args:
+            flights: Liste d'objets FlightRadarAPI.Flight
+            batch_id: Identifiant du batch (pour traçabilité)
+            zone_name: Nom de la zone (pour métadonnées)
+
+        Returns:
+            Liste de dicts prêts pour un DataFrame Spark
+        """
+
+        dicts = []
+        timestamp = datetime.utcnow()
+
+        for flight in flights:
+            try:
+                # Données brutes de l'API
+                d = {
+                    "extraction_timestamp": timestamp,
+                    "batch_id": batch_id,
+                    "source_zone": zone_name or "global",
+                    "flight_id": flight.id,
+                    "callsign": flight.callsign,
+                    "flight_number": flight.number,
+                    "airline_icao": flight.airline_icao,
+                    "airline_iata": flight.airline_iata,
+                    "aircraft_code": flight.aircraft_code,
+                    "registration": flight.registration,
+                    "origin_iata": flight.origin_airport_iata,
+                    "destination_iata": flight.destination_airport_iata,
+                    "latitude": flight.latitude,
+                    "longitude": flight.longitude,
+                    "altitude": flight.altitude,
+                    "ground_speed": flight.ground_speed,
+                    "heading": flight.heading,
+                    "on_ground": flight.on_ground,
+                    "vertical_speed": flight.vertical_speed,
+                    "icao_24bit": flight.icao_24bit,
+                }
+
+                # Données enrichies (si disponibles après get_flight_details)
+                enrichment_fields = [
+                    "aircraft_model",
+                    "airline_name",
+                    "origin_airport_name",
+                    "origin_airport_country_code",
+                    "origin_airport_country_name",
+                    "origin_airport_latitude",
+                    "origin_airport_longitude",
+                    "destination_airport_name",
+                    "destination_airport_country_code",
+                    "destination_airport_country_name",
+                    "destination_airport_latitude",
+                    "destination_airport_longitude",
+                    "status_text",
+                ]
+
+                for field in enrichment_fields:
+                    d[field] = getattr(flight, field, None)
+
+                dicts.append(d)
+
+            except Exception as e:
+                self.logger.warning(f"Erreur conversion vol {flight.id}: {e}")
+                continue
+
+        return dicts
+
+    def flights_to_spark_df(
+        self,
+        spark: SparkSession,
+        flights: List[Any],
+        batch_id: str,
+        zone_name: Optional[str] = None,
+    ) -> DataFrame:
+        """
+        Convertir des vols en DataFrame Spark avec schéma forcé.
+
+        Args:
+            spark: Session Spark
+            flights: Liste d'objets Flight
+            batch_id: Identifiant du batch
+            zone_name: Nom de la zone
+
+        Returns:
+            DataFrame avec schéma schema_flights_raw
+        """
+
+        dicts = self.flights_to_dicts(flights, batch_id, zone_name)
+
+        if not dicts:
+            self.logger.warning("Aucun vol à convertir en DataFrame")
+            # Retourner un DataFrame vide avec le bon schéma
+            return spark.createDataFrame([], schema=schema_flights_raw)
+
+        df = spark.createDataFrame(dicts, schema=schema_flights_raw)
+
+        self.logger.info(f"DataFrame créé: {df.count()} vols, {len(df.columns)} colonnes")
+
+        return df
+
+    def collect_and_convert(
+        self,
+        spark: SparkSession,
+        zones: Optional[List[str]] = None,
+        enrich: bool = False,
+    ) -> DataFrame:
+        """
+        Collecter les vols de multiple zones et les convertir en un seul DataFrame.
+
+        Args:
+            spark: Session Spark
+            zones: Liste des zones à collecter (None = ['global'])
+            enrich: Si True, enrichir avec get_flight_details()
+
+        Returns:
+            DataFrame unifié (union de toutes les zones)
+        """
+
+        if zones is None:
+            zones = ["global"]
+
+        batch_id = str(uuid.uuid4())[:8]
+        dfs = []
+
+        for zone in zones:
+            zone_name = zone if zone != "global" else None
+            flights = self.get_flights_for_zone(
+                zone_name=zone_name,
+                enrich=enrich
+            )
+
+            if flights:
+                df = self.flights_to_spark_df(spark, flights, batch_id, zone)
+                dfs.append(df)
+
+        if not dfs:
+            self.logger.warning("Aucun DataFrame collecté")
+            return spark.createDataFrame([], schema=schema_flights_raw)
+
+        # Union de tous les DataFrames
+        result_df = dfs[0]
+        for df in dfs[1:]:
+            result_df = result_df.union(df)
+
+        self.logger.info(f"Batch {batch_id}: total {result_df.count()} vols")
+
+        return result_df
+
+
+def extract_flights_batch(
+    spark: SparkSession,
+    config: Dict[str, Any],
+) -> DataFrame:
+    """
+    Fonction de niveau supérieur pour extraction d'un batch.
+
+    À utiliser depuis le job Spark Core Batch.
+
+    Args:
+        spark: Session Spark
+        config: dict avec clés:
+            - zones: List[str] (ou ["global"])
+            - enrich: bool (si enrichir avec get_flight_details)
+            - timeout: int (timeout API en secondes)
+
+    Returns:
+        DataFrame avec schéma schema_flights_raw
+    """
+
+    extractor = FlightExtractor(
+        timeout_seconds=config.get("timeout", 30),
+        max_workers=config.get("max_workers", 8)
+    )
+
+    df = extractor.collect_and_convert(
+        spark=spark,
+        zones=config.get("zones", ["global"]),
+        enrich=config.get("enrich", False)
+    )
+
+    return df
+
+
+if __name__ == "__main__":
+    # Test
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
+    from pyspark.sql import SparkSession
+
+    spark = SparkSession.builder.appName("FlightExtractionTest").getOrCreate()
+
+    extractor = FlightExtractor()
+    df = extractor.collect_and_convert(spark, zones=["global"], enrich=False)
+
+    print(f"Extracted {df.count()} flights")
+    df.show(3)
+
+    spark.stop()
