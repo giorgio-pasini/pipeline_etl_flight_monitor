@@ -5,7 +5,10 @@
 - #TODO : faire un POC de Structured Streaming en utilisant Spark pour commencer à déposer les fichiers dans le datalake
 - #TODO : faire un POC de transformation sur les données extraites pour s'assurer que les réponses aux KPI sont contenues dans le données qu'on a extrait, autre que voir rapidement les transformations à faire
 - #TODO : individuer les meilleures stratégies de partition à appliquer pour le job Spark
+- #TODO : implementer système de logging et de monitoring du job
 - #TODO : implementer le job spark finale en utilisant le structured streaming
 - #TODO : implementer la dashboard streamlit pour répondre aux questions du kata
-- #TODO : implementer Apache AirFlow pour faire tourner automatiquement le job spark
-- #TODO : tout deployer sur AWS
+- #TODO : tout implementer avec une structure fault-tolerant mais loud, de facon qui si il y a des problèmes ils ne cassent pas le job mais ils sont très bien flaggés dans les données et dans les logs
+- #TODO : implementer tout ca en utilisant la structure plus simple mais efficace possible, sans allant trop rapidement aux over-engineering
+- #ONHOLD : implementer Apache AirFlow pour faire tourner automatiquement le job spark
+- #ONHOLD : tout deployer sur AWS
