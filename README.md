@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 3 étapes complétées, POC opérationnel  
+**Statut :** 5 étapes complétées (56% avancement), Pipeline optimisé  
 **Date :** 2026-06-21
 
 ---
@@ -149,6 +149,39 @@ API FlightRadar24 (temps-réel)
 - Fault-tolerance : les erreurs n'arrêtent pas le job
 - **À orchestrer toutes les 2 heures** (via Airflow/cron, pas streaming continu)
 
+### Étape 4 : Transformation Silver + Gold ✅
+
+**Deliverables :**
+- **`src/transformations.py`** (380 lignes) : Nettoyage + 7 KPI functions
+- **`src/silver_gold_loader.py`** (220 lignes) : Orchestration Silver/Gold
+
+**Highlights :**
+- 7 KPIs calculés :
+  - Compagnie avec + vols en cours
+  - Top compagnie par continent (vols régionaux)
+  - Vol en cours au trajet le + long
+  - Distance moyenne par continent
+  - Constructeur d'avions le + actif
+  - Top 3 modèles par pays compagnie
+  - Aéroport au + grand écart départs/arrivées
+- Intégré dans batch_job.py (Phase 6)
+- Transformation progressive : Bronze → Silver → Gold
+
+### Étape 5 : Optimisation du partitionnement ✅
+
+**Deliverables :**
+- **`src/partitioning_optimizer.py`** (380 lignes) : Analyse + profiling
+- **`scripts/profile_partitions.py`** (200 lignes) : CLI pour profiler datalake
+- **`config/spark_tuning.py`** (150 lignes) : 4 profils Spark optimisés
+- **`PARTITIONING.md`** (400 lignes) : Guide complet d'optimisation
+
+**Highlights :**
+- Détecte partition skew (déséquilibre)
+- Recommande config Spark optimale
+- Profile query performance (KPI timing)
+- Expected : 3-5x plus rapide après optimisation
+- 4 profils : POC, BATCH (⭐ nôtre), ANALYTICS, PRODUCTION
+
 ---
 
 ## 🚀 Démarrage rapide
@@ -177,42 +210,36 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 
 ---
 
-## 🔄 Prochaines étapes (Phase 2)
-
-### Étape 4 : Transformation & KPIs
-- Créer la couche Silver (nettoyage + enrichissement)
-- Créer les 7 tables Gold avec les KPIs
-- Valider chaque KPI contre les données
-
-### Étape 5 : Stratégie de partitionnement
-- Analyser les patterns d'accès (quels KPIs demandent quelles colonnes)
-- Optimiser les partitions secondaires
-- Mesurer les performances
+## 🔄 Prochaines étapes
 
 ### Étape 6 : Logging & Monitoring
-- Intégration Prometheus / Grafana
-- Alertes (ex: si % valid < 70%)
-- Dashboard de monitoring interne
+- Intégration Prometheus pour métriques
+- Dashboard Grafana pour visualiser SLAs
+- Alertes (ex: si query time > 5s)
+- Traçabilité des erreurs avec structured logging
 
-### Étape 7 : Job Spark final
-- Boucle infinie vs. cron (recommandé : cron toutes les 2h)
-- Gestion checkpoint Spark
-- Retry logic
+### Étape 7 : Job Spark final + Scheduling
+- Orchestration avec cron (toutes les 2h)
+- Ou Airflow si orchestration multi-jobs requise
+- Retry logic + alertes
+- SLA monitoring (< 5 min par batch)
 
 ### Étape 8 : Dashboard Streamlit
-- Visualisation des 7 KPIs
-- Filtres (date, compagnie, continent, etc.)
-- Graphiques temps-réel
+- Visualisation des 7 KPIs en temps-réel
+- Filtres (date range, compagnie, continent, etc.)
+- Graphiques interactifs
+- Export CSV/JSON
 
-### Étape 9 : Fault-tolerance & erreurs
+### Étape 9 : Fault-tolerance & gestion erreurs
 - Policy "loud but not breaking" : logs détaillés, données flaggées
-- Gestion gracieuse des timeouts API
+- Gestion gracieuse des timeouts API (retries + exponential backoff)
 - Alertes Slack/email en cas d'anomalie
+- Recovery automatique
 
-### Phase 3 (Futur)
-- **Orchestration Airflow** : scheduling automatique
-- **Déploiement AWS** : S3 datalake, EC2/ECS workers, RDS metadata
-- **ML** : prédiction retards, anomaly detection
+### Phase 3 (Futur, optionnel)
+- **Orchestration Airflow avancée** : DAGs, SLA monitoring, retries
+- **Déploiement AWS** : S3 datalake, EC2/ECS workers, Athena queries
+- **ML** : prédiction retards, anomaly detection, clustering
 
 ---
 

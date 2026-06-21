@@ -45,6 +45,7 @@ from config.datalake_config import DatalakeConfig, PARTITION_COLUMNS_BRONZE
 from src.flight_extraction import extract_flights_batch
 from src.data_quality import validate_and_flag_flights, profile_data_quality
 from src.datalake_utils import get_partition_values
+from src.silver_gold_loader import SilverGoldLoader
 import json
 
 
@@ -185,12 +186,26 @@ def run_batch(
 
         logger.info(f"✓ Données écrites en Bronze: {bronze_path}")
 
+        # Phase 6 : Transformation Silver + Gold (optionnel, selon flag)
+        if config.LOAD_SILVER_GOLD:
+            logger.info("Phase 6 : Transformation Silver + Gold...")
+
+            try:
+                loader = SilverGoldLoader(spark, config)
+                etl_result = loader.run_full_etl(bronze_path)
+
+                logger.info(f"✓ Silver : {etl_result['silver'].count()} rows")
+                logger.info(f"✓ Gold : {len(etl_result['gold_kpis'])} KPIs calculés")
+
+            except Exception as e:
+                logger.warning(f"⚠️  Silver/Gold skipped due to error: {e}")
+
         # Résumé final
         logger.info("="*70)
         logger.info("✅ Batch complété avec succès")
         logger.info(f"   Vols : {num_flights}")
         logger.info(f"   Vols valides : {quality_stats.get('valid_rows', 0)}")
-        logger.info(f"   Chemin : {bronze_path}")
+        logger.info(f"   Chemin Bronze : {bronze_path}")
         logger.info("="*70)
 
         return True

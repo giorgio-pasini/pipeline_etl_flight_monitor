@@ -58,11 +58,16 @@ def temp_datalake(tmp_path):
 @pytest.fixture
 def sample_flight_dict():
     """Exemple de vol (Flight object converti en dict)."""
+    from datetime import datetime as dt
     return {
+        'extraction_timestamp': dt.now(),
+        'batch_id': 'BATCH_001',
+        'source_zone': 'global',
         'flight_id': 'ABC123',
         'callsign': 'DLH123',
         'flight_number': 'DL123',
         'airline_icao': 'DAL',
+        'airline_iata': 'DL',
         'aircraft_code': 'B737',
         'registration': 'N1234AA',
         'origin_iata': 'CDG',
@@ -74,18 +79,36 @@ def sample_flight_dict():
         'heading': 90.0,
         'on_ground': 0,
         'vertical_speed': 100.0,
-        'extraction_timestamp': datetime.now().isoformat(),
+        'icao_24bit': 'ABC123',
+        'aircraft_model': 'B737-800',
+        'airline_name': 'Lufthansa',
+        'origin_airport_name': 'Charles de Gaulle',
+        'origin_airport_country_code': 'FR',
+        'origin_airport_country_name': 'France',
+        'origin_airport_latitude': 49.0,
+        'origin_airport_longitude': 2.55,
+        'destination_airport_name': 'Orly',
+        'destination_airport_country_code': 'FR',
+        'destination_airport_country_name': 'France',
+        'destination_airport_latitude': 48.72,
+        'destination_airport_longitude': 2.39,
+        'status_text': 'In Air',
     }
 
 
 @pytest.fixture
 def sample_flight_dict_invalid():
     """Exemple de vol invalide (données manquantes)."""
+    from datetime import datetime as dt
     return {
+        'extraction_timestamp': dt.now(),
+        'batch_id': 'BATCH_001',
+        'source_zone': 'global',
         'flight_id': 'XYZ999',
         'callsign': 'BAD999',
         'flight_number': 'BAD999',
         'airline_icao': None,  # Manquant
+        'airline_iata': None,
         'aircraft_code': None,  # Manquant
         'registration': 'UNKNOWN',
         'origin_iata': None,  # Manquant
@@ -97,7 +120,20 @@ def sample_flight_dict_invalid():
         'heading': 90.0,
         'on_ground': 0,
         'vertical_speed': 100.0,
-        'extraction_timestamp': datetime.now().isoformat(),
+        'icao_24bit': 'XYZ999',
+        'aircraft_model': None,
+        'airline_name': None,
+        'origin_airport_name': None,
+        'origin_airport_country_code': None,
+        'origin_airport_country_name': None,
+        'origin_airport_latitude': None,
+        'origin_airport_longitude': None,
+        'destination_airport_name': 'Orly',
+        'destination_airport_country_code': 'FR',
+        'destination_airport_country_name': 'France',
+        'destination_airport_latitude': 48.72,
+        'destination_airport_longitude': 2.39,
+        'status_text': 'Unknown',
     }
 
 

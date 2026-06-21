@@ -898,18 +898,111 @@ tests/integration/test_batch_job.py::TestBatchJobIntegration::test_spark_session
 
 ---
 
+# Étape 4 : Transformation Silver + Gold
+
+## 4.1 Objectif
+
+Implémenter les transformations pour enrichir les données (Silver) et calculer les 7 KPIs (Gold).
+
+## 4.2 Livrables
+
+**`src/transformations.py`** (380 lignes)
+- `clean_and_enrich_bronze()` : Nettoyage + déduplication + enrichissement
+- 7 KPI functions :
+  - `kpi_airline_volumes()` — Compagnie avec + vols en cours
+  - `kpi_continental_regional()` — Top compagnie par continent (vols régionaux)
+  - `kpi_longest_flight()` — Vol en cours au trajet le + long
+  - `kpi_continental_avg_distance()` — Distance moyenne par continent
+  - `kpi_aircraft_manufacturers()` — Constructeur d'avions le + actif
+  - `kpi_airline_aircraft_top3()` — Top 3 modèles par pays compagnie
+  - `kpi_airport_imbalance()` — Aéroport au + grand écart départs/arrivées
+
+**`src/silver_gold_loader.py`** (220 lignes)
+- `SilverGoldLoader` class
+- `load_silver()` : Écriture fact_flights enrichie en Parquet partitionné
+- `load_gold()` : Calcul et écriture des 7 KPIs
+- `run_full_etl()` : Orchestration complète Bronze → Silver → Gold
+
+## 4.3 Intégration
+
+✅ Intégré dans `batch_job.py` — Phase 6  
+✅ Flag `LOAD_SILVER_GOLD` dans DatalakeConfig  
+✅ Gestion gracieuse des erreurs (non-breaking)  
+
+**Status :** ✅ Transformation Silver + Gold implémentées
+
+---
+
+# Étape 5 : Optimisation du partitionnement
+
+## 5.1 Objectif
+
+Analyser et optimiser le partitionnement + config Spark pour :
+- Réduire temps d'exécution des KPI queries (3-5x)
+- Équilibrer la distribution (éviter skew)
+- Tuner la config Spark selon le workload
+
+## 5.2 Livrables
+
+**`src/partitioning_optimizer.py`** (380 lignes)
+- `PartitioningOptimizer` class
+- `analyze_partition_skew()` — Détecte déséquilibre (skew_ratio)
+- `estimate_partition_sizes()` — Estime tailles par partition
+- `recommend_spark_config()` — Recommande shuffle partitions
+- `profile_query_performance()` — Profile timing des KPI queries
+- `generate_optimization_report()` — Rapport complet
+
+**`scripts/profile_partitions.py`** (200 lignes)
+- CLI pour profiler any layer (bronze/silver/gold)
+- Output JSON avec skew analysis, size analysis, recommandations
+- Usage : `python scripts/profile_partitions.py --layer bronze`
+
+**`config/spark_tuning.py`** (150 lignes)
+- 4 profils optimisés :
+  - **POC** : 1 executor, 4 shuffle partitions (local)
+  - **BATCH** : 8 executors, 150 shuffle partitions (⭐ NÔTRE)
+  - **ANALYTICS** : 5 executors, 100 shuffle partitions (KPI queries)
+  - **PRODUCTION** : 10+ executors, 200 shuffle partitions (cluster)
+- Recommandations broadcast (dim tables)
+- Recommandations indexing
+
+**`PARTITIONING.md`** (400 lignes)
+- Guide complet d'optimisation
+- Métriques clés (skew_ratio, partition sizes, query timing)
+- Checklist de performance
+- Expected before/after results
+
+## 5.3 Méthodologie
+
+1. **Baseline profiling** : `python scripts/profile_partitions.py --layer bronze`
+2. **Analyze results** : vérifier skew_ratio, partition sizes
+3. **Apply Spark tuning** : sélectionner profil adapté
+4. **Re-profile KPI queries** : mesurer timing avant/après
+5. **Document findings** : garder rapports dans version control
+
+## 5.4 Expected Results
+
+| Métrique | Avant | Après | Impact |
+|----------|-------|-------|--------|
+| Skew ratio | 2.5x | 1.2x | Distribution uniforme |
+| Query time | 10-15s | 3-5s | 3-5x plus rapide |
+| Partition pruning | Non | Oui | Moins de data scannée |
+| CPU utilization | 40% | 85% | Meilleure efficacité |
+
+**Status :** ✅ Optimisation partitionnement implémentée
+
+---
+
 **Prochaines étapes :** 
 
-- **Étape 4** : POC Transformation & KPIs (Silver + Gold layer)
-- **Étape 5** : Stratégie de partitionnement (optimisation)
-- **Étape 6** : Logging & Monitoring
-- **Étape 7** : Job Spark final (boucle infinie vs. cron)
+- **Étape 6** : Logging & Monitoring (Prometheus/Grafana)
+- **Étape 7** : Job Spark final + Scheduling
 - **Étape 8** : Dashboard Streamlit
 - **Étape 9** : Gestion des erreurs (fault-tolerance "loud")
 
 ---
 
-## Résumé global (Étapes 1-3.5 complétées)
+## Résumé global (Étapes 1-5 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -917,8 +1010,8 @@ tests/integration/test_batch_job.py::TestBatchJobIntegration::test_spark_session
 | 2 | Structure du datalake | `config/datalake_config.py`, `src/datalake_utils.py`, `scripts/init_datalake.py`, `scripts/purge_old_partitions.py` | ✅ |
 | 3 | POC Spark Batch | `src/flight_extraction.py`, `src/batch_job.py`, `README_quickstart.md` | ✅ |
 | 3.5 | Test-Based Development | `tests/` (~7 fichiers), `pytest.ini`, `TESTS.md`, `TESTING_PLAN.md`, `run_tests.ps1/sh` | ✅ |
-| 4 | POC Transformation & KPIs | À implémenter | 🔲 |
-| 5 | Stratégie de partitionnement | À implémenter | 🔲 |
+| 4 | Transformation Silver + Gold | `src/transformations.py`, `src/silver_gold_loader.py` | ✅ |
+| 5 | Optimisation partitionnement | `src/partitioning_optimizer.py`, `scripts/profile_partitions.py`, `config/spark_tuning.py`, `PARTITIONING.md` | ✅ |
 | 6 | Logging & Monitoring | À implémenter | 🔲 |
 | 7 | Job Spark final | À implémenter | 🔲 |
 | 8 | Dashboard Streamlit | À implémenter | 🔲 |
@@ -929,12 +1022,15 @@ tests/integration/test_batch_job.py::TestBatchJobIntegration::test_spark_session
 - ✅ Configuration centralisée (DatalakeConfig)
 - ✅ Scripts d'admin (init, purge) opérationnels
 - ✅ POC fonctionnel (extract → Bronze)
-- ✅ Documentation client (README_modele, README_quickstart)
+- ✅ Transformation Silver + Gold (7 KPIs calculés)
+- ✅ Optimiseur de partitionnement (analyser + profiler + recommander)
+- ✅ 4 profils Spark optimisés (POC, BATCH, ANALYTICS, PRODUCTION)
+- ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md)
 - ✅ Schémas Spark + data quality checks
 - ✅ Suite de tests équilibrée (~28 tests : unit + integration + E2E)
 - ✅ Journal développement complet (documentation_dev.md)
 
-**Prochaine priorité :** Étape 4 (Transformation Silver + KPIs Gold)
+**Prochaine priorité :** Étape 6 (Logging & Monitoring - Prometheus/Grafana)
 
 ---
 

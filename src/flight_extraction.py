@@ -22,7 +22,7 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType
 from pyspark.sql.functions import col, lit, current_timestamp
 
-from schemas import schema_flights_raw
+from .schemas import schema_flights_raw
 
 logger = logging.getLogger(__name__)
 

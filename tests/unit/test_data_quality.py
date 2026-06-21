@@ -12,14 +12,10 @@ class TestDataQualityFlags:
 
     def test_valid_flight_no_flags(self, spark_session, sample_flight_dict):
         """Un vol valide ne doit avoir aucun flag."""
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            [sample_flight_dict.values()],
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [tuple(sample_flight_dict.values())],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
@@ -31,14 +27,10 @@ class TestDataQualityFlags:
         """Un vol sans origine doit avoir le flag MISSING_ORIGIN."""
         sample_flight_dict['origin_iata'] = None
 
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            [sample_flight_dict.values()],
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [tuple(sample_flight_dict.values())],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
@@ -67,14 +59,10 @@ class TestDataQualityFlags:
 
     def test_is_valid_logic(self, spark_session, sample_flight_dict):
         """is_valid doit être True seulement si aucun flag et données valides."""
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            [sample_flight_dict.values()],
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [tuple(sample_flight_dict.values())],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
@@ -89,14 +77,10 @@ class TestQualityProfiling:
 
     def test_profile_returns_dict(self, spark_session, sample_flight_dict):
         """Le profil doit retourner un dictionnaire."""
+        from src.schemas import schema_flights_raw
         df = spark_session.createDataFrame(
-            [sample_flight_dict.values()],
-            schema="flight_id STRING, callsign STRING, flight_number STRING, "
-                   "airline_icao STRING, aircraft_code STRING, registration STRING, "
-                   "origin_iata STRING, destination_iata STRING, latitude DOUBLE, "
-                   "longitude DOUBLE, altitude DOUBLE, ground_speed DOUBLE, "
-                   "heading DOUBLE, on_ground INT, vertical_speed DOUBLE, "
-                   "extraction_timestamp STRING"
+            [tuple(sample_flight_dict.values())],
+            schema=schema_flights_raw
         )
 
         result = validate_and_flag_flights(df, logger=None)
