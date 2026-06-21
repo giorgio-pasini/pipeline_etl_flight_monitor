@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 8 étapes complétées, pipeline unifié, durci et testé de bout en bout  
+**Statut :** 9 étapes complétées — pipeline unifié, durci, fault-tolerant, testé de bout en bout  
 **Date :** 2026-06-21
 
 ---
@@ -223,7 +223,7 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 | 6 | Logging & Monitoring | ✅ | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` |
 | 7 | Job final + Scheduling | ✅ | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` |
 | 8 | Revue de code & corrections | ✅ | `src/reference_data.py`, `tests/unit/test_transformations.py`, corrections globales |
-| 9 | Fault-tolerance avancée | 🔲 | À faire |
+| 9 | Fault-tolerance avancée | ✅ | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` |
 
 ---
 
@@ -319,9 +319,29 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
   - Les tests d'écriture Parquet se *skip* proprement sans `HADOOP_HOME`/winutils
     (Windows) ; ils s'exécutent en CI/Linux.
 
-### Étape 9 : Amélioration Dashboard & Fault-tolerance (optionnel)
-- Détails par KPI (drill-down)
-- Export rapports complets
+### Étape 9 : Fault-tolerance avancée ✅
+
+**Complétée !** Résilience aux échecs transitoires + alerting (approche simple) :
+
+- **Retries API avec backoff exponentiel** (`retry_with_backoff` dans
+  `src/flight_extraction.py`) : `API_MAX_RETRIES` tentatives sur échec transitoire
+  (timeout, rate-limit, 5xx) ; la zone retourne vide après épuisement (le batch continue).
+- **Alerting simple** (`src/alerting.py`) : règles sur les métriques (erreurs →
+  CRITICAL, qualité < seuil, dépassement SLA, extraction vide) → journalisées,
+  écrites en `_logs/alerts/{batch_id}_alerts.json`, et POST optionnel vers
+  `ALERT_WEBHOOK_URL` (Slack/Teams, sans dépendance externe).
+- Intégré dans `run_batch` sur tous les chemins de sortie.
+- 11 tests dédiés (`tests/unit/test_fault_tolerance.py`).
+
+**Configuration :**
+```bash
+export API_MAX_RETRIES=3
+export ALERT_WEBHOOK_URL="https://hooks.slack.com/services/..."   # optionnel
+```
+
+### Pistes futures (optionnel)
+- Dashboard : drill-down par KPI, export de rapports
+- Orchestration Airflow, déploiement cloud (S3/Athena)
 - Real-time updates
 - Comparaison periods
 

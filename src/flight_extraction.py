@@ -11,36 +11,82 @@ Fournit les fonctions pour :
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+import time
+from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from FlightRadarAPI import FlightRadar24API
-from FlightRadarAPI.core import Countries
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.types import StructType
-from pyspark.sql.functions import col, lit, current_timestamp
 
 from .schemas import schema_flights_raw
 
 logger = logging.getLogger(__name__)
 
 
+def retry_with_backoff(
+    func: Callable,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    backoff_factor: float = 2.0,
+    exceptions: tuple = (Exception,),
+    logger_obj: Optional[logging.Logger] = None,
+):
+    """
+    Exécuter `func` avec retries et backoff exponentiel.
+
+    Args:
+        func: callable sans argument à exécuter
+        max_retries: nombre maximal de tentatives (>= 1)
+        base_delay: délai initial en secondes
+        backoff_factor: multiplicateur du délai entre tentatives
+        exceptions: tuple d'exceptions déclenchant un retry
+        logger_obj: logger optionnel
+
+    Returns:
+        Le résultat de `func`
+
+    Raises:
+        La dernière exception si toutes les tentatives échouent.
+    """
+    log = logger_obj or logger
+    delay = base_delay
+    last_exc = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return func()
+        except exceptions as e:
+            last_exc = e
+            if attempt < max_retries:
+                log.warning(
+                    f"Tentative {attempt}/{max_retries} échouée ({e}); "
+                    f"nouvelle tentative dans {delay:.1f}s"
+                )
+                time.sleep(delay)
+                delay *= backoff_factor
+            else:
+                log.error(f"Échec après {max_retries} tentatives: {e}")
+
+    raise last_exc
+
+
 class FlightExtractor:
     """Classe d'extraction des vols depuis l'API FlightRadarAPI."""
 
-    def __init__(self, timeout_seconds: int = 30, max_workers: int = 8):
+    def __init__(self, timeout_seconds: int = 30, max_workers: int = 8, max_retries: int = 3):
         """
         Initialiser l'extracteur.
 
         Args:
             timeout_seconds: Timeout pour chaque appel API
             max_workers: Nombre de threads parallèles pour enrichissement
+            max_retries: Nombre de tentatives sur échec transitoire de l'API
         """
         self.api = FlightRadar24API(timeout=timeout_seconds, max_workers=max_workers)
         self.timeout_seconds = timeout_seconds
         self.max_workers = max_workers
+        self.max_retries = max_retries
         self.logger = logging.getLogger(__name__)
 
     def get_flights_for_zone(
@@ -75,11 +121,17 @@ class FlightExtractor:
                     return []
                 bounds = self.api.get_bounds(zones[zone_name])
 
-            flights = self.api.get_flights(
-                bounds=bounds,
-                airline=airline,
-                aircraft_type=aircraft_type,
-                details=enrich  # Utiliser le paramètre details pour paralléliser
+            # Appel API protégé par retries + backoff exponentiel (échecs transitoires :
+            # timeouts réseau, rate-limit, 5xx). Échoue proprement après max_retries.
+            flights = retry_with_backoff(
+                lambda: self.api.get_flights(
+                    bounds=bounds,
+                    airline=airline,
+                    aircraft_type=aircraft_type,
+                    details=enrich,
+                ),
+                max_retries=self.max_retries,
+                logger_obj=self.logger,
             )
 
             self.logger.info(
@@ -90,6 +142,7 @@ class FlightExtractor:
             return flights
 
         except Exception as e:
+            # Fault-tolerance : on n'interrompt pas le batch, la zone retourne vide
             self.logger.error(f"Erreur lors de la collecte (zone={zone_name}): {e}")
             return []
 
@@ -275,7 +328,8 @@ def extract_flights_batch(
 
     extractor = FlightExtractor(
         timeout_seconds=config.get("timeout", 30),
-        max_workers=config.get("max_workers", 8)
+        max_workers=config.get("max_workers", 8),
+        max_retries=config.get("max_retries", 3),
     )
 
     df = extractor.collect_and_convert(

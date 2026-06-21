@@ -1204,13 +1204,55 @@ Les tests nécessitant l'écriture Parquet se *skip* proprement si
 
 ---
 
-**Prochaines étapes :** 
+# Étape 9 : Fault-tolerance avancée (retries API + alerting)
 
-- **Étape 9** : Gestion des erreurs avancée (retries API, alerting)
+## 9.1 Objectif
+
+Rendre le pipeline résilient aux échecs transitoires de l'API et notifier
+automatiquement les anomalies — en gardant l'approche simple du projet (pas
+d'infra lourde type Prometheus/Alertmanager).
+
+## 9.2 Retries API avec backoff exponentiel
+
+**`src/flight_extraction.py::retry_with_backoff`** — helper générique :
+- `max_retries` tentatives, délai `base_delay * backoff_factor^n`
+- ne retry que les exceptions listées ; relève la dernière après épuisement
+- appliqué à `api.get_flights(...)` dans `get_flights_for_zone`
+
+Configurable via `DatalakeConfig.API_MAX_RETRIES` (env `API_MAX_RETRIES`, défaut 3).
+En cas d'échec définitif, la zone retourne `[]` (le batch continue — fault-tolerant).
+
+## 9.3 Alerting simple
+
+**`src/alerting.py`** :
+- `evaluate_alerts(metrics, config)` — règles sur les métriques finalisées :
+  - erreurs présentes → **CRITICAL** (`pipeline_errors`)
+  - % valide < `ALERT_THRESHOLD_PCT_VALID` (si vols extraits) → **WARNING** (`low_data_quality`)
+  - durée > SLA (`COLLECTION_TIMEOUT_MINUTES`) → **WARNING** (`sla_breach`)
+  - extraction vide → **WARNING** (`empty_extraction`)
+- `dispatch_alerts(...)` — journalise (WARNING/ERROR), persiste en
+  `_logs/alerts/{batch_id}_alerts.json`, et POST optionnel vers
+  `ALERT_WEBHOOK_URL` (Slack/Teams, best-effort, sans dépendance externe).
+
+## 9.4 Intégration
+
+`batch_job.run_batch` appelle `_finalize_and_alert` sur **tous** les chemins de
+sortie (succès, extraction vide, exception) : métriques finalisées → sauvegardées
+→ alertes évaluées/déclenchées.
+
+## 9.5 Tests
+
+**`tests/unit/test_fault_tolerance.py`** (11 tests, sans Spark) :
+- `retry_with_backoff` : succès direct, succès après retries, épuisement,
+  exceptions non listées non retentées.
+- alerting : batch sain (0 alerte), erreurs→CRITICAL, basse qualité, qualité
+  ignorée si 0 vol, SLA, écriture du fichier d'alertes.
+
+**Status :** ✅ Fault-tolerance avancée implémentée et testée
 
 ---
 
-## Résumé global (Étapes 1-8 complétées)
+## Résumé global (Étapes 1-9 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1223,7 +1265,7 @@ Les tests nécessitant l'écriture Parquet se *skip* proprement si
 | 6 | Logging & Monitoring | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` | ✅ |
 | 7 | Job final + Scheduling | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` | ✅ |
 | 8 | Revue de code & corrections | `src/reference_data.py`, `tests/unit/test_transformations.py`, `tests/unit/test_reference_data.py` + corrections globales | ✅ |
-| 9 | Fault-tolerance avancée (retries, alerting) | À implémenter | 🔲 |
+| 9 | Fault-tolerance avancée (retries, alerting) | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` | ✅ |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)
@@ -1237,12 +1279,13 @@ Les tests nécessitant l'écriture Parquet se *skip* proprement si
 - ✅ Job ETL final unifié (`batch_job.run_batch`, 7 phases) + wrapper CLI
 - ✅ Scheduling automatique (Cron + Task Scheduler)
 - ✅ Données de référence réelles (continents, constructeurs)
+- ✅ Fault-tolerance : retries API (backoff) + alerting (fichier/log/webhook)
 - ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md, LOGGING.md, SCHEDULING.md)
 - ✅ Schémas Spark + data quality checks
-- ✅ Suite de tests étendue (unit + integration + E2E, incl. transformations)
+- ✅ Suite de tests étendue (unit + integration + E2E, incl. transformations & fault-tolerance)
 - ✅ Journal développement complet (documentation_dev.md)
 
-**Prochaine priorité :** Étape 9 (Fault-tolerance avancée : retries API, alerting)
+**Statut :** ✅ Les 9 étapes du plan sont complétées.
 
 ---
 

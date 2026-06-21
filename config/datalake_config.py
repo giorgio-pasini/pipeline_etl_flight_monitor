@@ -89,6 +89,7 @@ class DatalakeConfig:
 
     API_TIMEOUT_SECONDS = 30
     API_MAX_WORKERS_PARALLEL = 8  # Threads pour appels parallèles
+    API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", 3))  # Retries sur échec transitoire
 
     FLIGHTS_BATCH_SIZE_LIMIT = 1500  # Limite de vols retournés par get_flights() sans bounds
 
@@ -101,6 +102,9 @@ class DatalakeConfig:
 
     # Seuil d'alerte : si % de vols valides < ce seuil, générer une alerte
     ALERT_THRESHOLD_PCT_VALID = 70
+
+    # Webhook optionnel pour notifier les alertes (Slack/Teams/etc.). Vide = désactivé.
+    ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
 
     # Sauvegarder les rapports de qualité JSON ?
     SAVE_QUALITY_REPORTS = True

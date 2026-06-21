@@ -47,6 +47,7 @@ from src.data_quality import validate_and_flag_flights, profile_data_quality
 from src.datalake_utils import get_partition_values
 from src.silver_gold_loader import SilverGoldLoader
 from src.job_metrics import JobMetrics
+from src.alerting import check_and_alert
 import json
 
 
@@ -141,6 +142,7 @@ def run_batch(
             "enrich": False,  # POC : pas d'enrichissement pour le moment
             "timeout": config.API_TIMEOUT_SECONDS,
             "max_workers": config.API_MAX_WORKERS_PARALLEL,
+            "max_retries": config.API_MAX_RETRIES,
         }
 
         df = extract_flights_batch(spark, extraction_config)
@@ -150,8 +152,7 @@ def run_batch(
         if num_flights == 0:
             logger.warning("Aucun vol collecté!")
             metrics.add_warning("empty_extraction", "Aucun vol retourné par l'API")
-            metrics.finalize()
-            _save_metrics(metrics, config, logger)
+            _finalize_and_alert(metrics, config, logger)
             return False
 
         logger.info(f"✓ {num_flights} vols extraits")
@@ -245,9 +246,8 @@ def run_batch(
                 logger.warning(f"⚠️  Silver/Gold skipped due to error: {e}")
                 metrics.add_warning("silver_gold_error", str(e))
 
-        # Phase 7 : Métriques
-        metrics.finalize()
-        _save_metrics(metrics, config, logger)
+        # Phase 7 : Métriques + alerting
+        _finalize_and_alert(metrics, config, logger)
 
         # Résumé final
         logger.info("="*70)
@@ -262,9 +262,18 @@ def run_batch(
     except Exception as e:
         logger.error(f"❌ Erreur lors du batch : {e}", exc_info=True)
         metrics.add_error("batch_error", str(e), phase="pipeline")
-        metrics.finalize()
-        _save_metrics(metrics, config, logger)
+        _finalize_and_alert(metrics, config, logger)
         return False
+
+
+def _finalize_and_alert(metrics: JobMetrics, config: DatalakeConfig, logger: logging.Logger):
+    """Finaliser les métriques, les sauvegarder, puis évaluer/déclencher les alertes."""
+    metrics.finalize()
+    _save_metrics(metrics, config, logger)
+    try:
+        check_and_alert(metrics.metrics, config, logger_obj=logger)
+    except Exception as e:
+        logger.warning(f"⚠️  Alerting échoué : {e}")
 
 
 def _save_metrics(metrics: JobMetrics, config: DatalakeConfig, logger: logging.Logger):
