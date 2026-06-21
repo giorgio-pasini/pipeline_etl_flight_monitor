@@ -1178,6 +1178,28 @@ préfixe avion→constructeur) + helpers d'expressions Spark.
 - Tests d'intégration renforcés : assertion `success is True` (chemin nominal
   réellement exercé, plus seulement le chemin d'erreur).
 
+## 8.7 Tests critiques ajoutés (couverture renforcée)
+
+Suite à la revue, les lacunes de test identifiées ont été comblées :
+
+1. **Validation des 7 KPIs sur valeurs connues** (`test_transformations.py`) :
+   chaque KPI vérifié sur ses **valeurs** (compagnie top, constructeur top,
+   vol le plus long, régionaux par continent, distance moyenne, top-3 modèles,
+   déséquilibre aéroport), pas seulement le nombre de lignes.
+2. **Round-trip Parquet partitionné** (`test_parquet_roundtrip.py`) : verrouille
+   la régression de partitionnement (valeurs `tech_*` correctes + pruning).
+3. **8 flags qualité exhaustifs** (`test_data_quality.py`, paramétré) : un cas
+   par flag (MISSING_*, INVALID_*, INCONSISTENT_POSITION).
+4. **Orchestration `run_full_etl`** (`test_silver_gold_loader.py`) : Bronze →
+   Silver → Gold de bout en bout + valeurs métier.
+5. **Idempotence / déduplication** : cross-batch (mêmes `flight_id` sur deux
+   batches → Silver dédupliqué) en unitaire et en intégration.
+6. **`cleanup_old_partitions` mode réel** (`dry_run=False`) : supprime au-delà de
+   la rétention, conserve le récent.
+
+Les tests nécessitant l'écriture Parquet se *skip* proprement si
+`HADOOP_HOME`/`winutils.exe` est absent (Windows) ; ils s'exécutent en CI/Linux.
+
 **Status :** ✅ Codebase durci, pipeline exécutable de bout en bout, tests verts
 
 ---

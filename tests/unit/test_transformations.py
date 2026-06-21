@@ -14,6 +14,9 @@ from src.transformations import (
     kpi_aircraft_manufacturers,
     kpi_longest_flight,
     kpi_airport_imbalance,
+    kpi_continental_regional,
+    kpi_continental_avg_distance,
+    kpi_airline_aircraft_top3,
 )
 
 
@@ -141,3 +144,45 @@ class TestKpis:
         ]
         df = clean_and_enrich_bronze(_make_df(spark_session, rows))
         assert kpi_airline_volumes(df).count() == 0
+
+    def test_continental_regional(self, enriched_df):
+        # F1, F2 = NA->NA (régionaux, DAL) ; F3 = EU->NA (non régional)
+        result = {r["origin_continent"]: r for r in kpi_continental_regional(enriched_df).collect()}
+        assert "NA" in result
+        assert result["NA"]["airline_icao"] == "DAL"
+        assert result["NA"]["regional_flights_count"] == 2
+        # EU n'a aucun vol régional (F3 est transcontinental)
+        assert "EU" not in result
+
+    def test_continental_avg_distance(self, enriched_df):
+        result = {r["origin_continent"]: r for r in kpi_continental_avg_distance(enriched_df).collect()}
+        # NA : 2 vols (F1 ~3983, F2 ~1200) ; EU : 1 vol (F3 ~5830)
+        assert result["NA"]["flight_count"] == 2
+        assert result["EU"]["flight_count"] == 1
+        assert 2000 < result["NA"]["avg_distance_km"] < 3200
+
+    def test_airline_aircraft_top3(self, enriched_df):
+        rows = kpi_airline_aircraft_top3(enriched_df).collect()
+        # US : B738 (F1) + B739 (F2) ; FR : A320 (F3)
+        by_country = {}
+        for r in rows:
+            by_country.setdefault(r["origin_airport_country_code"], []).append(r)
+        assert len(by_country["US"]) == 2
+        assert len(by_country["FR"]) == 1
+        # Tous les rangs <= 3
+        assert all(r["rank"] <= 3 for r in rows)
+
+    def test_dedup_reduces_duplicates(self, spark_session):
+        """Rejouer les mêmes flight_id ne doit pas dupliquer (idempotence dedup)."""
+        ts1 = datetime(2026, 6, 21, 14, 0, 0)
+        ts2 = datetime(2026, 6, 21, 16, 0, 0)
+        rows = [
+            dict(flight_id="A", extraction_timestamp=ts1, airline_icao="DAL",
+                 aircraft_code="B738", on_ground=0, is_valid=True),
+            dict(flight_id="A", extraction_timestamp=ts2, airline_icao="DAL",
+                 aircraft_code="B738", on_ground=0, is_valid=True),
+            dict(flight_id="B", extraction_timestamp=ts1, airline_icao="AFR",
+                 aircraft_code="A320", on_ground=0, is_valid=True),
+        ]
+        out = clean_and_enrich_bronze(_make_df(spark_session, rows))
+        assert out.count() == 2  # A dédupliqué, B conservé

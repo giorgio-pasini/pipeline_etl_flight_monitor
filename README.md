@@ -308,8 +308,16 @@ chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
 - **Données de référence réelles** (`src/reference_data.py`) : continents (ISO→continent)
   et constructeurs (préfixe avion→constructeur) remplacent les placeholders ; distance
   haversine réelle.
-- **Tests** : env Spark fiabilisé (`PYSPARK_PYTHON`), tests corrigés, **nouveaux tests
-  Silver/Gold** (`test_transformations.py`) et données de référence.
+- **Tests** : env Spark fiabilisé (`PYSPARK_PYTHON`), tests corrigés, et tests
+  critiques ajoutés :
+  - 7 KPIs validés sur **valeurs connues** (pas juste le nb de lignes)
+  - round-trip Parquet partitionné (verrou anti-régression partitionnement)
+  - 8 flags qualité exhaustifs (paramétrés)
+  - orchestration `run_full_etl` Bronze→Silver→Gold de bout en bout
+  - idempotence/déduplication cross-batch
+  - `cleanup_old_partitions` en mode réel
+  - Les tests d'écriture Parquet se *skip* proprement sans `HADOOP_HOME`/winutils
+    (Windows) ; ils s'exécutent en CI/Linux.
 
 ### Étape 9 : Amélioration Dashboard & Fault-tolerance (optionnel)
 - Détails par KPI (drill-down)

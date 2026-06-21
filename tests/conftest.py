@@ -88,24 +88,37 @@ def parquet_write_supported(spark_session, tmp_path_factory):
 
 @pytest.fixture(scope="function")
 def temp_datalake(tmp_path):
-    """Créer un datalake temporaire pour les tests."""
+    """Créer un datalake temporaire pour les tests.
+
+    Redirige DATALAKE_ROOT *et* les chemins dérivés (BRONZE/SILVER/GOLD/LOG),
+    qui sont calculés à l'import et ne suivent pas l'override sinon — garantit
+    l'isolation : aucun test n'écrit dans le vrai datalake du dépôt.
+    """
     datalake_root = tmp_path / "datalake"
     datalake_root.mkdir(exist_ok=True)
 
-    # Créer les couches
     for layer in ["bronze", "silver", "gold"]:
         (datalake_root / layer).mkdir(exist_ok=True)
 
     # Sauvegarder l'ancienne config
-    old_root = DatalakeConfig.DATALAKE_ROOT
+    saved = {
+        attr: getattr(DatalakeConfig, attr)
+        for attr in ["DATALAKE_ROOT", "BRONZE_PATH", "SILVER_PATH", "GOLD_PATH", "LOG_PATH"]
+    }
 
-    # Override avec le chemin temporaire
-    DatalakeConfig.DATALAKE_ROOT = str(datalake_root)
+    # Override avec les chemins temporaires
+    root = str(datalake_root)
+    DatalakeConfig.DATALAKE_ROOT = root
+    DatalakeConfig.BRONZE_PATH = f"{root}/bronze"
+    DatalakeConfig.SILVER_PATH = f"{root}/silver"
+    DatalakeConfig.GOLD_PATH = f"{root}/gold"
+    DatalakeConfig.LOG_PATH = f"{root}/_logs"
 
     yield datalake_root
 
-    # Restaurer l'ancienne config
-    DatalakeConfig.DATALAKE_ROOT = old_root
+    # Restaurer
+    for attr, value in saved.items():
+        setattr(DatalakeConfig, attr, value)
 
 
 @pytest.fixture

@@ -1,10 +1,39 @@
 """Tests unitaires pour la validation et flagging de qualité."""
 
+import copy
 import pytest
 from pyspark.sql.functions import col, lit
 from datetime import datetime
 
 from src.data_quality import validate_and_flag_flights, profile_data_quality
+
+
+@pytest.mark.parametrize("mutation,expected_flag", [
+    ({"origin_iata": None}, "MISSING_ORIGIN"),
+    ({"destination_iata": None}, "MISSING_DESTINATION"),
+    ({"airline_icao": None}, "MISSING_AIRLINE"),
+    ({"aircraft_code": None}, "MISSING_AIRCRAFT_CODE"),
+    ({"latitude": None}, "MISSING_POSITION"),
+    ({"altitude": 99999.0}, "INVALID_ALTITUDE"),
+    ({"altitude": -50.0}, "INVALID_ALTITUDE"),
+    ({"ground_speed": 9999.0}, "INVALID_GROUND_SPEED"),
+    ({"latitude": 200.0}, "INCONSISTENT_POSITION"),
+])
+def test_each_quality_flag_is_raised(spark_session, sample_flight_dict, mutation, expected_flag):
+    """Chacun des 8 types de flags doit se déclencher sur la mutation appropriée."""
+    from src.schemas import schema_flights_raw
+
+    flight = copy.deepcopy(sample_flight_dict)
+    flight.update(mutation)  # le vol de base est valide (on_ground=0)
+
+    df = spark_session.createDataFrame([flight], schema=schema_flights_raw)
+    result = validate_and_flag_flights(df, logger=None)
+
+    flags = result.select("data_quality_flags").collect()[0][0]
+    assert flags is not None, f"Aucun flag pour {mutation}"
+    assert expected_flag in flags, f"Attendu {expected_flag}, obtenu {flags}"
+    # Un vol flaggé n'est jamais valide
+    assert result.select("is_valid").collect()[0][0] is False
 
 
 class TestDataQualityFlags:
