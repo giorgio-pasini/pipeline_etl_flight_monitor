@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 6 étapes complétées (67% avancement), Pipeline optimisé + monitoring  
+**Statut :** 7 étapes complétées (78% avancement), Pipeline complet + production-ready  
 **Date :** 2026-06-21
 
 ---
@@ -221,7 +221,7 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 | 4 | Transformation Silver + Gold | ✅ | `src/transformations.py`, `src/silver_gold_loader.py` |
 | 5 | Optimisation partitionnement | ✅ | `src/partitioning_optimizer.py`, `PARTITIONING.md` |
 | 6 | Logging & Monitoring | ✅ | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` |
-| 7 | Job final + Scheduling | 🔲 | À faire |
+| 7 | Job final + Scheduling | ✅ | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` |
 | 8 | Amélioration Dashboard | 🔲 | À faire |
 | 9 | Fault-tolerance avancée | 🔲 | À faire |
 
@@ -252,17 +252,53 @@ streamlit run dashboard.py
 # http://localhost:8501
 ```
 
-### Étape 7 : Job Spark final + Scheduling
-- Orchestration avec cron (toutes les 2h)
-- Ou Airflow si orchestration multi-jobs requise
-- Retry logic + alertes
-- SLA monitoring (< 5 min par batch)
+### Étape 7 : Job Final + Scheduling ✅
 
-### Étape 8 : Dashboard Streamlit
-- Visualisation des 7 KPIs en temps-réel
-- Filtres (date range, compagnie, continent, etc.)
-- Graphiques interactifs
-- Export CSV/JSON
+**Complétée !**
+
+- **`scripts/run_job.py`** : Job ETL final complet
+  - Orchestration 5 phases (Extraction → Validation → Bronze → Silver/Gold → Métriques)
+  - Logging détaillé + résumé console
+  - Fault-tolerant (continue même en cas d'erreur)
+  - Enregistre métriques JSON + logs
+
+- **`scripts/schedule_job.sh`** : Scheduler Linux/macOS (Cron)
+  - Installer/lister/supprimer jobs
+  - Every 2 hours automatique
+  - Test manual
+
+- **`scripts/schedule_job.ps1`** : Scheduler Windows (Task Scheduler)
+  - Installer/lister/supprimer jobs
+  - GUI intégrée (taskschd.msc)
+  - Test manual
+
+- **`SCHEDULING.md`** : Documentation complète
+  - Guide Linux et Windows
+  - Configuration & options
+  - Troubleshooting
+
+**Usage :**
+```bash
+# Test (1 execution)
+python scripts/run_job.py --with-silver-gold
+
+# Installer scheduler (Linux/macOS)
+chmod +x scripts/schedule_job.sh && ./scripts/schedule_job.sh install
+
+# Installer scheduler (Windows — as Admin)
+.\scripts\schedule_job.ps1 -Action install
+
+# Vérifier
+./scripts/schedule_job.sh list
+```
+
+**Schedule :** Every 2 hours (00:00, 02:00, 04:00, ..., 22:00) = 12 executions/day
+
+### Étape 8 : Amélioration Dashboard (optionnel)
+- Détails par KPI (drill-down)
+- Export rapports complets
+- Real-time updates
+- Comparaison periods
 
 ### Étape 9 : Fault-tolerance & gestion erreurs
 - Policy "loud but not breaking" : logs détaillés, données flaggées
