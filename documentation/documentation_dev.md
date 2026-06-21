@@ -12,6 +12,7 @@
 1. [Étape 1 : Modélisation des données](#étape-1--modélisation-des-données)
 2. [Étape 2 : Structure du datalake](#étape-2--structure-du-datalake)
 3. [Étape 3 : POC Spark Batch](#étape-3--poc-spark-batch)
+3.5. [Étape 3.5 : Test-Based Development](#étape-35--test-based-development)
 4. [Étape 4 : POC Transformation & KPIs](#étape-4--poc-transformation--kpis)
 5. [Étape 5 : Stratégie de partitionnement](#étape-5--stratégie-de-partitionnement)
 6. [Étape 6 : Logging & Monitoring](#étape-6--logging--monitoring)
@@ -654,6 +655,249 @@ df.select('callsign', 'is_valid').show(5)
 
 ---
 
+# Étape 3.5 : Test-Based Development
+
+## 3.5.1 Objectif
+
+Mettre en place une suite de tests **équilibrée** (unit + integration + E2E) avant de continuer avec les Étapes 4-9. Approche : test-based development (TBD) sans over-engineering. ~28 tests, couvrant les chemins critiques.
+
+## 3.5.2 Philosophie et scope
+
+**Principe :** Tester juste ce qu'il faut pour être sûr que tout fonctionne, sans excès.
+
+**Couverture :**
+- **Unit tests (~20)** : Composants individuels (schemas, data_quality, flight_extraction, datalake_utils)
+- **Integration tests (~5)** : Workflows batch (extract → validate → load avec mock API)
+- **E2E tests (~3)** : Cycle complet avec l'API réelle (marqués @slow, optionnels)
+- **Total : ~28 tests** (léger, manageable, rapide < 5 min)
+
+## 3.5.3 Structure des tests
+
+```
+tests/
+├── conftest.py                      # Fixtures partagées
+├── unit/
+│   ├── test_schemas.py              # ~8 tests : validation schémas Spark
+│   ├── test_data_quality.py         # ~8 tests : flags + is_valid logic
+│   ├── test_flight_extraction.py    # ~3 tests : extraction + mock API
+│   └── test_datalake_utils.py       # ~4 tests : partitionnement + cleanup
+├── integration/
+│   └── test_batch_job.py            # ~5 tests : workflows batch complets
+└── e2e/
+    └── test_e2e_batch.py            # ~3 tests : full cycle (API réelle)
+```
+
+### Fichiers de configuration et documentation
+
+- **`pytest.ini`** : Configuration pytest (markers, logging, output)
+- **`TESTS.md`** : Documentation complète de la suite
+- **`TESTING_PLAN.md`** : Plan détaillé des tests
+- **`QUICKTEST.md`** : Quick start guide
+- **`run_tests.ps1`** / **`run_tests.sh`** : Scripts lanceurs (Windows/Linux)
+
+## 3.5.4 Unit Tests
+
+### `test_schemas.py` (~8 tests)
+
+**Objectif :** Valider que les schémas Spark sont corrects
+
+```python
+# Tests
+- test_schema_exists() : StructType existe et n'est pas None
+- test_schema_has_required_columns() : colonnes obligatoires présentes
+- test_schema_field_types() : types des colonnes corrects
+- test_schema_can_create_dataframe() : création DataFrame possible
+- test_airlines_schema_exists() : dim_airlines OK
+- test_airports_schema_exists() : dim_airports OK
+- test_fact_flights_schema_exists() : fact_flights OK
+- test_schemas_dict_populated() : SCHEMAS registry rempli
+```
+
+### `test_data_quality.py` (~8 tests)
+
+**Objectif :** Valider la logique de flagging et is_valid
+
+```python
+# Tests
+- test_valid_flight_no_flags() : vol valide → aucun flag
+- test_missing_origin_flag() : vol sans origin → flag MISSING_ORIGIN
+- test_invalid_altitude_flag() : altitude négative → flag INVALID_ALTITUDE
+- test_is_valid_logic() : is_valid = True ssi aucun flag
+- test_profile_returns_dict() : profil retourne dict valide
+- test_profile_counts_valid_invalid() : profil compte vols valid/invalid
+```
+
+### `test_flight_extraction.py` (~3 tests)
+
+**Objectif :** Valider extraction et conversion (avec API mockée)
+
+```python
+# Tests
+- test_extractor_initialization() : extracteur s'initialise correctement
+- test_flights_to_dicts_conversion() : Flight objects → dicts
+- test_extract_flights_batch_with_mock_api() : création DataFrame OK
+- test_empty_flights_list() : gestion liste vide
+```
+
+### `test_datalake_utils.py` (~4 tests)
+
+**Objectif :** Valider partitionnement et cleanup
+
+```python
+# Tests
+- test_get_partition_values() : extraction valeurs partition OK
+- test_partition_values_format() : format correct (year, month, day, hour)
+- test_build_partition_path() : construction chemin partitionné OK
+- test_parse_partition_path() : parsing chemin OK
+- test_cleanup_dry_run() : dry-run ne supprime pas
+```
+
+## 3.5.5 Integration Tests
+
+### `test_batch_job.py` (~5 tests)
+
+**Objectif :** Valider le workflow batch complet
+
+```python
+# Tests
+- test_spark_session_creation() : session Spark créée correctement
+- test_batch_job_with_mock_api() : extraction → validation → load OK
+- test_batch_job_empty_api_response() : API vide → graceful handling
+- test_batch_job_logging() : logs créés correctement
+- test_batch_continues_on_partial_failure() : données mixtes → fault-tolerant
+
+# Validations
+- Batch doit terminer sans crash (success = True/False)
+- Bronze Parquet doit être écrit si succès
+- Logs + rapports JSON créés
+```
+
+## 3.5.6 E2E Tests
+
+### `test_e2e_batch.py` (~3 tests, @slow)
+
+**Objectif :** Valider le cycle complet avec API réelle
+
+```python
+# Tests
+- test_batch_job_full_cycle() : API réelle → Spark → Parquet
+- test_batch_job_creates_quality_reports() : rapports de qualité générés
+- test_batch_job_idempotent() : batch rejouable 2x = même résultat
+
+# Marqué @pytest.mark.slow (à exécuter séparément)
+# Nécessite accès Internet + API FlightRadarAPI
+```
+
+## 3.5.7 Fixtures partagées (conftest.py)
+
+```python
+@pytest.fixture(scope="session")
+def spark_session():
+    """Session Spark pour tous les tests."""
+    # Local[2], 1g driver memory
+    # Configurée pour tests
+
+@pytest.fixture(scope="function")
+def temp_datalake(tmp_path):
+    """Datalake temporaire par test."""
+    # Bronze, Silver, Gold dirs créés
+    # Isolé par test (cleanup auto)
+
+@pytest.fixture
+def sample_flight_dict():
+    """Vol valide (dictionnaire)."""
+    # CDG → ORY, altitude 10000 ft, etc.
+
+@pytest.fixture
+def sample_flight_dict_invalid():
+    """Vol invalide (données manquantes)."""
+    # Manque airline, origin ; altitude négatif
+
+@pytest.fixture
+def sample_flights_dataframe(spark_session, sample_flight_dict):
+    """DataFrame Spark avec 1 vol."""
+```
+
+## 3.5.8 Exécution
+
+### Option 1 : Scripts lanceurs
+
+```powershell
+# Windows PowerShell
+.\run_tests.ps1              # Unit + Integration (rapide, ~2 min)
+.\run_tests.ps1 -Mode unit   # Unit only (~30 sec)
+.\run_tests.ps1 -Mode e2e    # With API (slow, ~10 min)
+.\run_tests.ps1 -Mode coverage # Rapport coverage
+```
+
+```bash
+# Linux/Mac
+bash run_tests.sh             # Default
+bash run_tests.sh unit        # Unit only
+bash run_tests.sh e2e         # With API
+```
+
+### Option 2 : pytest directe
+
+```bash
+# Default (unit + integration, pas slow)
+pytest tests/ -v -m "not slow"
+
+# Unit only
+pytest tests/unit/ -v
+
+# Integration
+pytest tests/integration/ -v
+
+# E2E (avec API)
+pytest tests/e2e/ -v -m slow
+
+# All
+pytest tests/ -v
+
+# Coverage
+pytest tests/unit/ --cov=src --cov-report=html
+```
+
+## 3.5.9 Résultats attendus
+
+Après exécution : `pytest tests/ -v -m "not slow"`
+
+```
+tests/unit/test_schemas.py::TestFlightsRawSchema::test_schema_exists PASSED
+tests/unit/test_schemas.py::TestFlightsRawSchema::test_schema_has_required_columns PASSED
+tests/unit/test_data_quality.py::TestDataQualityFlags::test_valid_flight_no_flags PASSED
+...
+tests/integration/test_batch_job.py::TestBatchJobIntegration::test_spark_session_creation PASSED
+...
+
+========================= 25 passed, 3 skipped in 2.15s =========================
+```
+
+**Résultat attendu :**
+- ✅ 25 PASSED (unit + integration)
+- ⏭️ 3 SKIPPED (E2E marked @slow)
+- ❌ 0 FAILED
+
+## 3.5.10 Artefacts livrés
+
+**Fichiers créés :**
+- `tests/` (3 sous-dossiers, 7 fichiers test, ~1000 lignes code test)
+- `pytest.ini` (configuration)
+- `TESTS.md` (documentation complète)
+- `TESTING_PLAN.md` (plan détaillé)
+- `QUICKTEST.md` (quick start)
+- `run_tests.ps1` / `run_tests.sh` (lanceurs)
+
+**Dependencies :**
+- pytest==7.4.0
+- pytest-mock==3.12.0
+- pyspark==3.5.0+ (pour Spark local sessions)
+
+**Status :** ✅ Suite de tests en place, équilibrée, prête pour validation
+
+---
+
 **Prochaines étapes :** 
 
 - **Étape 4** : POC Transformation & KPIs (Silver + Gold layer)
@@ -665,13 +909,14 @@ df.select('callsign', 'is_valid').show(5)
 
 ---
 
-## Résumé global (Étapes 1-3 complétées)
+## Résumé global (Étapes 1-3.5 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
 | 1 | Modélisation des données | `src/schemas.py`, `src/data_quality.py`, `README_modele.md` | ✅ |
 | 2 | Structure du datalake | `config/datalake_config.py`, `src/datalake_utils.py`, `scripts/init_datalake.py`, `scripts/purge_old_partitions.py` | ✅ |
 | 3 | POC Spark Batch | `src/flight_extraction.py`, `src/batch_job.py`, `README_quickstart.md` | ✅ |
+| 3.5 | Test-Based Development | `tests/` (~7 fichiers), `pytest.ini`, `TESTS.md`, `TESTING_PLAN.md`, `run_tests.ps1/sh` | ✅ |
 | 4 | POC Transformation & KPIs | À implémenter | 🔲 |
 | 5 | Stratégie de partitionnement | À implémenter | 🔲 |
 | 6 | Logging & Monitoring | À implémenter | 🔲 |
@@ -686,6 +931,7 @@ df.select('callsign', 'is_valid').show(5)
 - ✅ POC fonctionnel (extract → Bronze)
 - ✅ Documentation client (README_modele, README_quickstart)
 - ✅ Schémas Spark + data quality checks
+- ✅ Suite de tests équilibrée (~28 tests : unit + integration + E2E)
 - ✅ Journal développement complet (documentation_dev.md)
 
 **Prochaine priorité :** Étape 4 (Transformation Silver + KPIs Gold)
@@ -694,11 +940,11 @@ df.select('callsign', 'is_valid').show(5)
 
 # Conclusion — Statut et prochaines étapes
 
-## Résumé de ce qui a été livré (Étapes 1-3)
+## Résumé de ce qui a été livré (Étapes 1-3.5)
 
 ### Code et implémentation
 
-**Fichiers principaux :**
+**Fichiers principaux (Étapes 1-3) :**
 - `src/schemas.py` (350 lignes) : Schémas Spark pour 12 tables
 - `src/data_quality.py` (180 lignes) : Validation + flagging qualité
 - `config/datalake_config.py` (260 lignes) : Configuration centralisée
@@ -706,17 +952,34 @@ df.select('callsign', 'is_valid').show(5)
 - `scripts/init_datalake.py` (300 lignes) : Initialisation datalake
 - `scripts/purge_old_partitions.py` (280 lignes) : Purge par rétention
 - `src/flight_extraction.py` (220 lignes) : Extraction API
-- `src/streaming_job.py` (320 lignes) : Job Spark principal
+- `src/batch_job.py` (320 lignes) : Job Spark Core Batch principal
 
-**Total : ~2100 lignes de code production** (sans tests, sans commentaires verbeux)
+**Fichiers tests (Étape 3.5) :**
+- `tests/conftest.py` (~100 lignes) : Fixtures partagées
+- `tests/unit/test_schemas.py` (~120 lignes) : 8 tests schémas
+- `tests/unit/test_data_quality.py` (~130 lignes) : 8 tests qualité
+- `tests/unit/test_flight_extraction.py` (~100 lignes) : 3 tests extraction
+- `tests/unit/test_datalake_utils.py` (~120 lignes) : 4 tests utils
+- `tests/integration/test_batch_job.py` (~130 lignes) : 5 tests batch
+- `tests/e2e/test_e2e_batch.py` (~80 lignes) : 3 tests E2E
+
+**Total : ~2100 lignes de code production + ~750 lignes de tests**
 
 ### Documentation
 
+**Principale :**
 - `README_modele.md` (400 lignes) : Justifications modèle + mappages KPI
 - `README_quickstart.md` (270 lignes) : Guide démarrage rapide
-- `documentation_dev.md` (ce fichier, ~900 lignes) : Journal complet development
+- `documentation_dev.md` (ce fichier, ~1100 lignes) : Journal complet development
 - `README.md` (320 lignes) : Vue d'ensemble projet
 - Inline docstrings : tous les modules documentés
+
+**Tests (Étape 3.5) :**
+- `TESTS.md` (~300 lignes) : Documentation complète de la suite
+- `TESTING_PLAN.md` (~400 lignes) : Plan détaillé avec exemples
+- `QUICKTEST.md` (~100 lignes) : Quick start tests
+- `pytest.ini` : Configuration pytest
+- `run_tests.ps1` / `run_tests.sh` : Scripts lanceurs
 
 ### Artefacts client
 
@@ -744,6 +1007,8 @@ df.select('callsign', 'is_valid').show(5)
 
 ## Installation et premier test
 
+### POC (Étapes 1-3)
+
 ```bash
 # 1. Cloner le repository et cd
 cd /path/to/test_tecnico_exalt
@@ -755,7 +1020,7 @@ pip install -r requirements.txt
 python scripts/init_datalake.py --verbose
 
 # 4. Exécuter le POC
-python src/streaming_job.py --single-batch --verbose
+python src/batch_job.py --single-batch --verbose
 
 # 5. Vérifier les données
 python -c "
@@ -767,7 +1032,25 @@ print(f'Valid: {df.filter(\"is_valid=True\").count()}')
 "
 ```
 
-Durée estimée : **5 minutes** (2-3 min API + 1-2 min Spark + logs)
+**Durée estimée :** ~5 minutes (2-3 min API + 1-2 min Spark + logs)
+
+### Tests (Étape 3.5)
+
+```bash
+# Option 1 : Scripts lanceurs
+.\run_tests.ps1              # Windows : unit + integration (~2 min)
+bash run_tests.sh            # Linux/Mac : unit + integration (~2 min)
+
+# Option 2 : pytest directe
+pytest tests/ -v -m "not slow"  # Unit + Integration (rapide)
+pytest tests/unit/ -v           # Unit only (~30 sec)
+pytest tests/e2e/ -v -m slow    # E2E avec API (lent, ~10 min)
+
+# Avec coverage report
+pytest tests/unit/ --cov=src --cov-report=html
+```
+
+**Durée estimée :** ~2-5 minutes (selon mode)
 
 ---
 

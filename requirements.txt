@@ -32,6 +32,8 @@ apache-airflow==2.7.0
 # Testing
 pytest==7.4.0
 pytest-spark==0.6.0
+pytest-cov==4.1.0
+pytest-mock==3.12.0
 pydantic==2.4.0
 
 # Development
