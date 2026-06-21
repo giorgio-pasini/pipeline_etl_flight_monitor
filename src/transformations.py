@@ -232,3 +232,79 @@ def kpi_airport_imbalance(df: DataFrame) -> DataFrame:
         .limit(1)
         .withColumn("computed_at", current_timestamp())
     )
+
+
+# ============================================================================
+# SILVER — Dimensions (dérivées du fact enrichi, en Spark)
+# ============================================================================
+
+def build_dim_airports(df: DataFrame) -> DataFrame:
+    """
+    dim_airports : aéroports distincts (origine ∪ destination) avec pays/coords/continent.
+
+    Dérivé du fact enrichi (clean_and_enrich_bronze a déjà ajouté *_continent).
+    """
+    origin = df.select(
+        col("origin_iata").alias("airport_iata"),
+        col("origin_airport_name").alias("airport_name"),
+        col("origin_airport_country_code").alias("country_code"),
+        col("origin_airport_country_name").alias("country_name"),
+        col("origin_continent").alias("continent_code"),
+        col("origin_airport_latitude").alias("latitude"),
+        col("origin_airport_longitude").alias("longitude"),
+    )
+    dest = df.select(
+        col("destination_iata").alias("airport_iata"),
+        col("destination_airport_name").alias("airport_name"),
+        col("destination_airport_country_code").alias("country_code"),
+        col("destination_airport_country_name").alias("country_name"),
+        col("destination_continent").alias("continent_code"),
+        col("destination_airport_latitude").alias("latitude"),
+        col("destination_airport_longitude").alias("longitude"),
+    )
+    return (
+        origin.union(dest)
+        .filter(col("airport_iata").isNotNull() & (col("airport_iata") != ""))
+        .dropDuplicates(["airport_iata"])
+        .withColumn("last_updated", current_timestamp())
+    )
+
+
+def build_dim_airlines(df: DataFrame) -> DataFrame:
+    """dim_airlines : compagnies distinctes (icao, iata, name)."""
+    return (
+        df.select("airline_icao", "airline_iata", "airline_name")
+        .filter(col("airline_icao").isNotNull() & (col("airline_icao") != ""))
+        .dropDuplicates(["airline_icao"])
+        .withColumn("last_updated", current_timestamp())
+    )
+
+
+def build_dim_aircraft_models(df: DataFrame) -> DataFrame:
+    """dim_aircraft_models : modèles distincts (code, model, manufacturer)."""
+    return (
+        df.select("aircraft_code", "aircraft_model", "manufacturer")
+        .filter(col("aircraft_code").isNotNull() & (col("aircraft_code") != ""))
+        .dropDuplicates(["aircraft_code"])
+        .withColumn("last_updated", current_timestamp())
+    )
+
+
+def build_dim_countries_continents(df: DataFrame) -> DataFrame:
+    """dim_countries_continents : pays distincts (code, name, continent)."""
+    origin = df.select(
+        col("origin_airport_country_code").alias("country_code"),
+        col("origin_airport_country_name").alias("country_name"),
+        col("origin_continent").alias("continent_code"),
+    )
+    dest = df.select(
+        col("destination_airport_country_code").alias("country_code"),
+        col("destination_airport_country_name").alias("country_name"),
+        col("destination_continent").alias("continent_code"),
+    )
+    return (
+        origin.union(dest)
+        .filter(col("country_code").isNotNull() & (col("country_code") != ""))
+        .dropDuplicates(["country_code"])
+        .withColumn("last_updated", current_timestamp())
+    )

@@ -18,6 +18,10 @@ from .transformations import (
     kpi_aircraft_manufacturers,
     kpi_airline_aircraft_top3,
     kpi_airport_imbalance,
+    build_dim_airports,
+    build_dim_airlines,
+    build_dim_aircraft_models,
+    build_dim_countries_continents,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,14 +60,31 @@ class SilverGoldLoader:
 
         # Nettoyage et enrichissement
         silver_df = clean_and_enrich_bronze(bronze_df)
+        silver_df = silver_df.cache()  # réutilisé par fact + 4 dimensions
 
-        # Écriture en Silver
+        # Écriture du fact en Silver
         silver_path = self.config.SILVER_PATH + "/fact_flights"
         silver_df.write.mode("append").partitionBy("tech_year", "tech_month").parquet(silver_path)
+        logger.info(f"✓ Silver fact_flights loaded: {silver_path}")
 
-        logger.info(f"✓ Silver loaded: {silver_path}")
+        # Dimensions dérivées (snapshot courant, overwrite)
+        self._load_dimensions(silver_df)
 
         return silver_df
+
+    def _load_dimensions(self, silver_df: DataFrame) -> None:
+        """Construire et écrire les 4 tables de dimensions dans Silver."""
+        builders = {
+            "dim_airports": build_dim_airports,
+            "dim_airlines": build_dim_airlines,
+            "dim_aircraft_models": build_dim_aircraft_models,
+            "dim_countries_continents": build_dim_countries_continents,
+        }
+        for name, builder in builders.items():
+            dim_df = builder(silver_df)
+            path = self.config.get_silver_dim_path(name)
+            dim_df.write.mode("overwrite").parquet(path)
+            logger.info(f"  ✓ {name}: {dim_df.count()} lignes -> {path}")
 
     def load_gold(self, silver_df: DataFrame) -> dict:
         """

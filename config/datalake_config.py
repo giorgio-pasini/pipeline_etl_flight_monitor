@@ -91,10 +91,18 @@ class DatalakeConfig:
     API_MAX_WORKERS_PARALLEL = 8  # Threads pour appels parallèles
     API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", 3))  # Retries sur échec transitoire
 
+    # Enrichir chaque vol via get_flight_details (pays/coords aéroports, nom compagnie,
+    # modèle avion). Indispensable pour 4 des 7 KPIs. Coûteux (1 appel/vol, threadé).
+    API_ENRICH_DETAILS = os.getenv("API_ENRICH_DETAILS", "true").lower() == "true"
+
     FLIGHTS_BATCH_SIZE_LIMIT = 1500  # Limite de vols retournés par get_flights() sans bounds
 
-    # Zones à collecter (None = globale)
-    COLLECTION_ZONES = ["global"]  # Phase 2 : ["europe", "northamerica", "asia", ...]
+    # Zones à collecter. L'appel global est plafonné à 1500 vols ; en itérant les zones
+    # top-level (bounds), chaque appel monte jusqu'à 5000 vols -> couverture bien plus large.
+    COLLECTION_ZONES = [
+        "europe", "northamerica", "southamerica", "asia",
+        "africa", "oceania", "atlantic", "maldives", "northatlantic",
+    ]
 
     # ============================================================================
     # Qualité des données

@@ -28,6 +28,7 @@ Configuration :
 """
 
 import logging
+import os
 import sys
 import argparse
 import time
@@ -52,18 +53,25 @@ import json
 
 
 def setup_logging(config: DatalakeConfig):
-    """Configurer le logging (fichier + console)."""
+    """Configurer le logging (fichier + console), robuste UTF-8 sous Windows."""
     log_path = Path(config.get_log_path())
     log_path.mkdir(parents=True, exist_ok=True)
 
     log_file = log_path / f"batch_job_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
+    # La console Windows est souvent en cp1252 et plante sur les emojis (✓, ⚠️).
+    # On force la sortie standard en UTF-8 (errors=replace en filet de sécurité).
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     logging.basicConfig(
         level=getattr(logging, config.LOG_LEVEL),
         format="%(asctime)s [%(levelname)s] %(name)s : %(message)s",
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
         ]
     )
 
@@ -76,7 +84,7 @@ def setup_logging(config: DatalakeConfig):
 def create_spark_session(config: DatalakeConfig) -> SparkSession:
     """Créer et configurer la session Spark."""
 
-    spark = SparkSession.builder \
+    builder = SparkSession.builder \
         .appName(config.SPARK_APP_NAME) \
         .master(config.SPARK_MASTER) \
         .config("spark.sql.shuffle.partitions", config.SPARK_SHUFFLE_PARTITIONS) \
@@ -84,9 +92,17 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
         .config("spark.executor.memory", config.SPARK_EXECUTOR_MEMORY) \
         .config("spark.driver.memory", config.SPARK_DRIVER_MEMORY) \
         .config("spark.executor.cores", config.SPARK_EXECUTOR_CORES) \
-        .config("spark.executor.instances", config.SPARK_EXECUTOR_INSTANCES) \
-        .getOrCreate()
+        .config("spark.executor.instances", config.SPARK_EXECUTOR_INSTANCES)
 
+    # Windows : exposer hadoop.dll (NativeIO) à la JVM via java.library.path.
+    # Sans cela, l'écriture Parquet échoue avec UnsatisfiedLinkError sur
+    # NativeIO$Windows.access0 même si winutils.exe est présent.
+    hadoop_home = os.environ.get("HADOOP_HOME")
+    if os.name == "nt" and hadoop_home:
+        native_bin = os.path.join(hadoop_home, "bin")
+        builder = builder.config("spark.driver.extraLibraryPath", native_bin)
+
+    spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel(config.LOG_LEVEL)
 
     return spark
@@ -138,8 +154,8 @@ def run_batch(
         start_phase = time.time()
 
         extraction_config = {
-            "zones": zones or ["global"],
-            "enrich": False,  # POC : pas d'enrichissement pour le moment
+            "zones": zones or config.COLLECTION_ZONES,
+            "enrich": config.API_ENRICH_DETAILS,  # détails par vol (pays/coords, noms)
             "timeout": config.API_TIMEOUT_SECONDS,
             "max_workers": config.API_MAX_WORKERS_PARALLEL,
             "max_retries": config.API_MAX_RETRIES,
@@ -161,6 +177,10 @@ def run_batch(
         logger.info("Phase 2 : Validation et flagging...")
 
         df = validate_and_flag_flights(df, logger)
+        # Cache : le DataFrame provient d'une liste locale et subit de nombreuses
+        # actions (counts validation/profil/dimensions). Sans cache, chaque action
+        # recalcule toute la conversion -> très lent. On matérialise une fois.
+        df = df.cache()
 
         # Phase 3 : Profil de qualité
         logger.info("Phase 3 : Profil de qualité...")
@@ -305,8 +325,8 @@ def main():
         "--zones",
         type=str,
         nargs="+",
-        default=["global"],
-        help="Zones à collecter (ex: --zones global europe asia)"
+        default=None,
+        help="Zones à collecter (défaut: COLLECTION_ZONES de la config). Ex: --zones global europe asia"
     )
 
     parser.add_argument(

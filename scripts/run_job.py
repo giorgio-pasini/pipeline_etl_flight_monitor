@@ -33,8 +33,8 @@ def main():
         "--zones",
         type=str,
         nargs="+",
-        default=["global"],
-        help="Zones à collecter (default: global)"
+        default=None,
+        help="Zones à collecter (défaut: COLLECTION_ZONES de la config)"
     )
 
     parser.add_argument(

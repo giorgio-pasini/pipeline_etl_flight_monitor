@@ -23,6 +23,35 @@ from .schemas import schema_flights_raw
 
 logger = logging.getLogger(__name__)
 
+# Champs dont le schéma attend un DoubleType (l'API renvoie parfois des int)
+_FLOAT_FIELDS = (
+    "latitude", "longitude", "altitude", "ground_speed", "heading", "vertical_speed",
+    "origin_airport_latitude", "origin_airport_longitude",
+    "destination_airport_latitude", "destination_airport_longitude",
+)
+# Champs dont le schéma attend un IntegerType
+_INT_FIELDS = ("on_ground",)
+
+
+def _to_float(x):
+    """Coercion robuste vers float (None si vide/non convertible)."""
+    if x is None or x == "" or x == "N/A":
+        return None
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(x):
+    """Coercion robuste vers int (None si vide/non convertible)."""
+    if x is None or x == "" or x == "N/A":
+        return None
+    try:
+        return int(x)
+    except (TypeError, ValueError):
+        return None
+
 
 def retry_with_backoff(
     func: Callable,
@@ -216,6 +245,13 @@ class FlightExtractor:
                 for field in enrichment_fields:
                     d[field] = getattr(flight, field, None)
 
+                # Coercion de types : l'API renvoie parfois des int là où le
+                # schéma attend un double (et inversement) -> Spark est strict.
+                for f in _FLOAT_FIELDS:
+                    d[f] = _to_float(d.get(f))
+                for f in _INT_FIELDS:
+                    d[f] = _to_int(d.get(f))
+
                 dicts.append(d)
 
             except Exception as e:
@@ -301,7 +337,11 @@ class FlightExtractor:
         for df in dfs[1:]:
             result_df = result_df.union(df)
 
-        self.logger.info(f"Batch {batch_id}: total {result_df.count()} vols")
+        # Dédup cross-zones : un même vol peut apparaître dans des zones limitrophes
+        # (les bounds se chevauchent). On garde une occurrence par flight_id.
+        result_df = result_df.dropDuplicates(["flight_id"])
+
+        self.logger.info(f"Batch {batch_id}: total {result_df.count()} vols (dédupliqués)")
 
         return result_df
 
