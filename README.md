@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 5 étapes complétées (56% avancement), Pipeline optimisé  
+**Statut :** 6 étapes complétées (67% avancement), Pipeline optimisé + monitoring  
 **Date :** 2026-06-21
 
 ---
@@ -210,13 +210,47 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 
 ---
 
+## ✅ Étapes complétées
+
+| Étape | Titre | Status | Fichiers |
+|-------|-------|--------|----------|
+| 1 | Modélisation des données | ✅ | `src/schemas.py`, `src/data_quality.py` |
+| 2 | Structure du datalake | ✅ | `config/datalake_config.py`, `src/datalake_utils.py` |
+| 3 | POC Spark Batch | ✅ | `src/flight_extraction.py`, `src/batch_job.py` |
+| 3.5 | Test-Based Development | ✅ | `tests/`, `pytest.ini`, `TESTS.md` |
+| 4 | Transformation Silver + Gold | ✅ | `src/transformations.py`, `src/silver_gold_loader.py` |
+| 5 | Optimisation partitionnement | ✅ | `src/partitioning_optimizer.py`, `PARTITIONING.md` |
+| 6 | Logging & Monitoring | ✅ | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` |
+| 7 | Job final + Scheduling | 🔲 | À faire |
+| 8 | Amélioration Dashboard | 🔲 | À faire |
+| 9 | Fault-tolerance avancée | 🔲 | À faire |
+
+---
+
 ## 🔄 Prochaines étapes
 
-### Étape 6 : Logging & Monitoring
-- Intégration Prometheus pour métriques
-- Dashboard Grafana pour visualiser SLAs
-- Alertes (ex: si query time > 5s)
-- Traçabilité des erreurs avec structured logging
+### Étape 6 : Logging & Monitoring ✅
+
+**Complétée !**
+
+- **`src/job_metrics.py`** : Classe `JobMetrics` pour enregistrer métriques
+  - Extraction : rows, duration
+  - Validation : valid/invalid rows, %
+  - Analysis : in flight vs on ground, %
+  - Dimensions : unique airlines, airports, aircraft, countries
+  - Gold KPIs : rows dans chaque table KPI
+  - Errors et warnings
+- **`dashboard.py`** : Streamlit dashboard 3 pages
+  - Last Execution : tous les KPIs et dimensions
+  - History : table historique, trends, export CSV
+  - Summary : statistiques globales
+- **`LOGGING.md`** : Documentation complète
+
+**Usage :**
+```bash
+streamlit run dashboard.py
+# http://localhost:8501
+```
 
 ### Étape 7 : Job Spark final + Scheduling
 - Orchestration avec cron (toutes les 2h)

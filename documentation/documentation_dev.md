@@ -993,16 +993,63 @@ Analyser et optimiser le partitionnement + config Spark pour :
 
 ---
 
+---
+
+# Étape 6 : Logging & Monitoring Simple
+
+## 6.1 Objectif
+
+Mettre en place un système de logging et métriques simples pour tracer les exécutions du job et visualiser les KPIs.
+
+## 6.2 Livrables
+
+**`src/job_metrics.py`** (200 lignes)
+- `JobMetrics` class pour enregistrer :
+  - Extraction (rows, duration)
+  - Validation (valid/invalid rows, %)
+  - Analyse (in flight vs on ground, %)
+  - Dimensions (unique airlines, airports, aircraft, countries)
+  - Gold KPIs (rows pour chaque table KPI)
+  - Errors et warnings
+- `finalize()` : calcul durée totale et status
+- `save_to_json()` : sauvegarder en JSON
+- `get_summary()` : résumé texte formaté
+- `load_all_metrics()` : charger historique
+
+**`dashboard.py`** (420 lignes)
+- Dashboard Streamlit multi-pages
+- **Page 1 : Last Execution** — tous les KPIs, dimensions, erreurs
+- **Page 2 : History** — table historique, trends, export CSV
+- **Page 3 : Summary** — statistiques globales, distributions
+
+**`LOGGING.md`** (documentation complète)
+- Guide usage
+- Intégration dans batch_job.py
+- Structure JSON
+- Dashboard features
+
+## 6.3 Métriques collectées
+
+✅ Extraction : rows, duration
+✅ Validation : valid/invalid rows, %
+✅ Analysis : in flight vs on ground, %
+✅ Dimensions : unique airlines, airports, aircraft, countries
+✅ Gold KPIs : rows dans chaque table KPI
+✅ Errors et warnings
+
+**Status :** ✅ Logging & Monitoring implémentés
+
+---
+
 **Prochaines étapes :** 
 
-- **Étape 6** : Logging & Monitoring (Prometheus/Grafana)
 - **Étape 7** : Job Spark final + Scheduling
-- **Étape 8** : Dashboard Streamlit
+- **Étape 8** : Dashboard avancé (optionnel)
 - **Étape 9** : Gestion des erreurs (fault-tolerance "loud")
 
 ---
 
-## Résumé global (Étapes 1-5 complétées)
+## Résumé global (Étapes 1-6 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1012,9 +1059,9 @@ Analyser et optimiser le partitionnement + config Spark pour :
 | 3.5 | Test-Based Development | `tests/` (~7 fichiers), `pytest.ini`, `TESTS.md`, `TESTING_PLAN.md`, `run_tests.ps1/sh` | ✅ |
 | 4 | Transformation Silver + Gold | `src/transformations.py`, `src/silver_gold_loader.py` | ✅ |
 | 5 | Optimisation partitionnement | `src/partitioning_optimizer.py`, `scripts/profile_partitions.py`, `config/spark_tuning.py`, `PARTITIONING.md` | ✅ |
-| 6 | Logging & Monitoring | À implémenter | 🔲 |
-| 7 | Job Spark final | À implémenter | 🔲 |
-| 8 | Dashboard Streamlit | À implémenter | 🔲 |
+| 6 | Logging & Monitoring | `src/job_metrics.py`, `dashboard.py`, `LOGGING.md` | ✅ |
+| 7 | Job Spark final + Scheduling | À implémenter | 🔲 |
+| 8 | Amélioration Dashboard | À implémenter | 🔲 |
 | 9 | Fault-tolerance & gestion erreurs | À implémenter | 🔲 |
 
 **Artefacts clés livrés :**
@@ -1025,12 +1072,13 @@ Analyser et optimiser le partitionnement + config Spark pour :
 - ✅ Transformation Silver + Gold (7 KPIs calculés)
 - ✅ Optimiseur de partitionnement (analyser + profiler + recommander)
 - ✅ 4 profils Spark optimisés (POC, BATCH, ANALYTICS, PRODUCTION)
-- ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md)
+- ✅ Logging & Metrics simples avec Streamlit dashboard
+- ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md, LOGGING.md)
 - ✅ Schémas Spark + data quality checks
 - ✅ Suite de tests équilibrée (~28 tests : unit + integration + E2E)
 - ✅ Journal développement complet (documentation_dev.md)
 
-**Prochaine priorité :** Étape 6 (Logging & Monitoring - Prometheus/Grafana)
+**Prochaine priorité :** Étape 7 (Job final + Scheduling)
 
 ---
 
