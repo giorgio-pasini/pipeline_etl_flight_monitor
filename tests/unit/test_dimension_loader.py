@@ -5,7 +5,35 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.dimension_loader import _cache_fresh, load_dim_airlines
+from src.dimension_loader import _cache_fresh, load_dim_airlines, _read_static_airports
+
+
+def _tf(x):
+    try:
+        return float(x) if x else None
+    except (TypeError, ValueError):
+        return None
+
+
+class TestStaticAirports:
+    def test_parses_openflights_format(self, tmp_path):
+        # Format OpenFlights : id,name,city,country,IATA,ICAO,lat,lon,alt,...
+        f = tmp_path / "airports.dat"
+        f.write_text(
+            '1,"John F Kennedy Intl","New York","United States","JFK","KJFK",40.63,-73.77,13,-5,"A","x","airport","src"\n'
+            '2,"No IATA","X","France","\\N","LFXX",1.0,2.0,0,1,"E","y","airport","src"\n'
+            '3,"Charles de Gaulle","Paris","France","CDG","LFPG",49.0,2.55,392,1,"E","z","airport","src"\n',
+            encoding="utf-8",
+        )
+        rows = _read_static_airports(str(f), _tf)
+        by_iata = {r[0]: r for r in rows}
+        assert set(by_iata) == {"JFK", "CDG"}  # ligne sans IATA (\N) ignorée
+        assert by_iata["JFK"][3] == "United States"
+        assert by_iata["JFK"][4] == 40.63
+        assert by_iata["CDG"][5] == 2.55
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert _read_static_airports(str(tmp_path / "nope.dat"), _tf) == []
 
 
 class TestCacheFresh:

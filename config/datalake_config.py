@@ -105,9 +105,34 @@ class DatalakeConfig:
     # vient désormais des dimensions bulk (get_airports/get_airlines) jointes en Spark.
     API_ENRICH_DETAILS = os.getenv("API_ENRICH_DETAILS", "false").lower() == "true"
 
-    # Cache des dimensions de référence (jours) : get_airports (249 pays) n'est rechargé
+    # Cache des dimensions de référence (jours) : get_airports n'est rechargé
     # que si le cache Silver est plus vieux que ce seuil.
     DIM_CACHE_MAX_AGE_DAYS = int(os.getenv("DIM_CACHE_MAX_AGE_DAYS", 7))
+
+    # Source de la dimension aéroports : "static" (jeu OpenFlights local, fiable, 0 appel,
+    # recommandé) ou "api" (get_airports — fragile/lent + 429 en anonyme).
+    DIM_AIRPORTS_SOURCE = os.getenv("DIM_AIRPORTS_SOURCE", "static").lower()
+    DIM_AIRPORTS_STATIC_PATH = os.getenv(
+        "DIM_AIRPORTS_STATIC_PATH",
+        str(Path(__file__).parent.parent / "data" / "airports.dat"),
+    )
+
+    # Pays pour la dimension aéroports (source "api" uniquement). "ALL" = tous (lent ~30 min,
+    # peu fiable à 228) ;
+    # par défaut un sous-ensemble à fort trafic (rapide + fiable, couvre l'essentiel).
+    # Override via env : liste de noms d'enum Countries séparés par des virgules, ou "ALL".
+    DIM_AIRPORTS_COUNTRIES = os.getenv("DIM_AIRPORTS_COUNTRIES", "").strip() or ",".join([
+        "UNITED_STATES", "UNITED_KINGDOM", "FRANCE", "GERMANY", "SPAIN", "ITALY",
+        "NETHERLANDS", "SWITZERLAND", "IRELAND", "PORTUGAL", "BELGIUM", "AUSTRIA",
+        "SWEDEN", "NORWAY", "DENMARK", "FINLAND", "POLAND", "GREECE", "TURKEY",
+        "RUSSIA", "UKRAINE", "CZECHIA", "HUNGARY", "ROMANIA", "CROATIA",
+        "CHINA", "JAPAN", "SOUTH_KOREA", "INDIA", "INDONESIA", "THAILAND",
+        "MALAYSIA", "SINGAPORE", "VIETNAM", "PHILIPPINES", "HONG_KONG", "TAIWAN",
+        "UNITED_ARAB_EMIRATES", "SAUDI_ARABIA", "QATAR", "ISRAEL", "PAKISTAN",
+        "AUSTRALIA", "NEW_ZEALAND", "CANADA", "MEXICO", "BRAZIL", "ARGENTINA",
+        "CHILE", "COLOMBIA", "PERU", "SOUTH_AFRICA", "EGYPT", "MOROCCO",
+        "ETHIOPIA", "KENYA", "NIGERIA",
+    ])
 
     FLIGHTS_BATCH_SIZE_LIMIT = 1500  # Limite de vols retournés par get_flights() sans bounds
 

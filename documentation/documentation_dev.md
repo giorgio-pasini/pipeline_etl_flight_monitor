@@ -1431,8 +1431,35 @@ Par run : ~9 appels feed (+ backoff) + 1 `get_airlines` ; `get_airports` (249)
 - `tests/unit/test_dimension_loader.py` : `_cache_fresh` (frais/vieux/absent) ;
   `load_dim_airlines` avec API mockée (gated Parquet).
 
-**Status :** ✅ Stratégies anti-quota implémentées et testées. Run live à relancer
-avec `FR24_EMAIL`/`FR24_PASSWORD` définis (mot de passe FR24 requis).
+## 11.8 Run live anonyme : constats & source aéroports statique
+
+Le run anonyme a validé l'architecture mais révélé une limite de l'API :
+
+| Étape | Résultat |
+|---|---|
+| Feed sur 9 zones (bounds) | ✅ **7622 vols** dédupliqués, **aucun 429** (cap 1500 dépassé) |
+| `get_airlines()` (1 appel) | ✅ **2058** compagnies — `airline_name` rempli par jointure |
+| `get_airports()` à l'échelle | ❌ **HTTP 429** en anonyme + **lent** (~30 min/228 pays) + données partielles |
+
+→ **`get_airports` est intrinsèquement fragile** (429 anonyme, brotli, lenteur). Pour une
+dimension de **référence** (qui change rarement), on ajoute une **source statique** :
+
+- **`data/airports.dat`** (jeu OpenFlights, ~6072 aéroports avec IATA/ICAO/pays/lat/lon) —
+  zéro appel API, zéro quota, complet et fiable.
+- **`src/dimension_loader._read_static_airports`** parse le CSV → dim_airports.
+- **Flag `DIM_AIRPORTS_SOURCE`** (`config` / env) : **`"static"`** (défaut, recommandé) ou
+  **`"api"`** (get_airports, idéal en principe mais limité par le quota). Le dataset est là
+  pour **contourner les limites de l'API**.
+
+**Résultat final (run anonyme + source statique)** : **les 7 KPIs peuplés** avec des valeurs
+réelles — ex. vol le + long **SIN→JFK 15 340 km (Singapore Airlines)**, top régional EU
+**Ryanair**, constructeur **Airbus**, déséquilibre **ICN (+73)**.
+
+`tests/unit/test_dimension_loader.py::TestStaticAirports` verrouille le parseur OpenFlights.
+
+**Status :** ✅ Pipeline **complet et vérifié de bout en bout** : 9 zones → Bronze 7622 →
+Silver (fact + 4 dims) → **7/7 KPIs Gold peuplés**. Source aéroports configurable
+(static/api) pour gérer le quota.
 
 ---
 

@@ -217,9 +217,16 @@ python scripts\run_job.py --with-silver-gold
 vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
 
 ### Comportement de collecte (anti-quota)
-- **Enrichissement par dimensions bulk** (au lieu de `get_flight_details` par vol) :
-  `get_airlines()` (1 appel) + `get_airports()` (249 pays, **caché 7 j**) → joints au
-  fact en Spark. `API_ENRICH_DETAILS=false` par défaut.
+- **Enrichissement par dimensions** (au lieu de `get_flight_details` par vol) jointes au
+  fact en Spark : `airline_name` via `get_airlines()` (1 appel) ; pays/coords aéroports via
+  `dim_airports`. `API_ENRICH_DETAILS=false` par défaut.
+- **Source aéroports configurable** — flag `DIM_AIRPORTS_SOURCE` :
+  - **`static`** (défaut) : jeu **OpenFlights** local `data/airports.dat` (~6000 aéroports),
+    zéro appel API, zéro quota, fiable. ⭐ recommandé.
+  - **`api`** : `get_airports()` — idéal en principe mais **429/lent** en anonyme.
+  Le dataset statique existe pour **contourner les limites de l'API**.
+- **Résultat vérifié** (run anonyme) : 9 zones → **7622 vols** (cap 1500 dépassé) →
+  Silver (fact + 4 dims) → **7/7 KPIs Gold peuplés** (ex. vol le + long SIN→JFK 15 340 km).
 - **9 zones top-level** (`COLLECTION_ZONES`) avec `bounds` → dépasse le cap global
   de 1500 vols (jusqu'à 5000/zone) ; dédup cross-zones.
 - **Résilience quota** : login FR24 (`FR24_EMAIL`/`FR24_PASSWORD`), `RetryPolicy`

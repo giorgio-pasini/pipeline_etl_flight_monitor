@@ -40,6 +40,55 @@ _AIRPORTS_SCHEMA = StructType([
 ])
 
 
+def _read_static_airports(path: str, to_float):
+    """Lire le jeu OpenFlights airports.dat (CSV) -> liste de tuples.
+
+    Format : id, name, city, country, IATA, ICAO, lat, lon, alt, ...
+    Retourne (iata, icao, name, country_name, latitude, longitude) pour les
+    aéroports ayant un code IATA valide.
+    """
+    import csv
+    p = Path(path)
+    if not p.exists():
+        return []
+    rows = []
+    with open(p, encoding="utf-8") as f:
+        for rec in csv.reader(f):
+            if len(rec) < 8:
+                continue
+            iata = rec[4].strip()
+            if not iata or iata == "\\N" or len(iata) != 3:
+                continue
+            rows.append((
+                iata,
+                (rec[5].strip() if rec[5].strip() != "\\N" else None),  # icao
+                rec[1].strip(),                                          # name
+                rec[3].strip(),                                          # country_name
+                to_float(rec[6]),                                        # lat
+                to_float(rec[7]),                                        # lon
+            ))
+    return rows
+
+
+def _resolve_countries(config):
+    """Résoudre la liste de pays (enum Countries) depuis config.DIM_AIRPORTS_COUNTRIES.
+
+    "ALL" -> tous ; sinon liste de noms d'enum (les inconnus sont ignorés).
+    """
+    from FlightRadarAPI import Countries
+    spec = getattr(config, "DIM_AIRPORTS_COUNTRIES", "ALL")
+    if spec.strip().upper() == "ALL":
+        return list(Countries)
+    out = []
+    for name in spec.split(","):
+        member = getattr(Countries, name.strip(), None)
+        if member is not None:
+            out.append(member)
+        else:
+            logger.warning(f"Pays inconnu dans DIM_AIRPORTS_COUNTRIES: {name.strip()}")
+    return out or list(Countries)
+
+
 def _cache_fresh(path: str, max_age_days: int) -> bool:
     """True si le cache Parquet existe et est plus récent que max_age_days."""
     p = Path(path)
@@ -101,35 +150,34 @@ def load_dim_airports(spark: SparkSession, api, config) -> Optional[DataFrame]:
         logger.info(f"dim_airports : cache frais réutilisé ({path})")
         return spark.read.parquet(path)
 
-    try:
-        from FlightRadarAPI import Countries
-        countries = list(Countries)
-        logger.info(f"Chargement bulk des aéroports ({len(countries)} pays)...")
-        airports = retry_with_backoff(lambda: api.get_airports(countries),
-                                      max_retries=2, logger_obj=logger)
-    except Exception as e:
-        logger.warning(f"get_airports échoué : {e}")
-        return spark.read.parquet(path) if Path(path).exists() else None
-
     def _f(x):
         try:
-            return float(x) if x is not None else None
+            return float(x) if x not in (None, "", "\\N") else None
         except (TypeError, ValueError):
             return None
 
-    rows = []
-    for ap in airports:
-        iata = getattr(ap, "iata", None)
-        if not iata:
-            continue
-        rows.append((
-            iata,
-            getattr(ap, "icao", None),
-            getattr(ap, "name", None),
-            getattr(ap, "country", None),
-            _f(getattr(ap, "latitude", None)),
-            _f(getattr(ap, "longitude", None)),
-        ))
+    # Source statique (OpenFlights) — fiable, sans appel API ni quota.
+    if getattr(config, "DIM_AIRPORTS_SOURCE", "static") == "static":
+        rows = _read_static_airports(config.DIM_AIRPORTS_STATIC_PATH, _f)
+        if not rows:
+            logger.warning(f"Fichier aéroports statique vide/introuvable : {config.DIM_AIRPORTS_STATIC_PATH}")
+            return spark.read.parquet(path) if Path(path).exists() else None
+        logger.info(f"dim_airports : {len(rows)} aéroports depuis le jeu statique")
+    else:
+        try:
+            countries = _resolve_countries(config)
+            logger.info(f"Chargement bulk des aéroports ({len(countries)} pays)...")
+            airports = retry_with_backoff(lambda: api.get_airports(countries),
+                                          max_retries=2, logger_obj=logger)
+        except Exception as e:
+            logger.warning(f"get_airports échoué : {e}")
+            return spark.read.parquet(path) if Path(path).exists() else None
+        rows = [
+            (getattr(ap, "iata", None), getattr(ap, "icao", None), getattr(ap, "name", None),
+             getattr(ap, "country", None), _f(getattr(ap, "latitude", None)),
+             _f(getattr(ap, "longitude", None)))
+            for ap in airports if getattr(ap, "iata", None)
+        ]
 
     df = (
         spark.createDataFrame(rows, schema=_AIRPORTS_SCHEMA)
