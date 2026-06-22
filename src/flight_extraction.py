@@ -15,6 +15,7 @@ import time
 from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from FlightRadarAPI import FlightRadar24API
 from pyspark.sql import SparkSession, DataFrame
@@ -150,22 +151,28 @@ class FlightExtractor:
                     return []
                 bounds = self.api.get_bounds(zones[zone_name])
 
-            # Appel API protégé par retries + backoff exponentiel (échecs transitoires :
-            # timeouts réseau, rate-limit, 5xx). Échoue proprement après max_retries.
+            # 1) Feed (liste de vols) sous retry — appel léger et fiable.
+            #    On NE met PAS details=enrich ici : sinon un seul échec d'un appel
+            #    détaillé ferait re-télécharger tout le feed + tous les détails
+            #    (amplification de la charge / du rate-limit).
             flights = retry_with_backoff(
                 lambda: self.api.get_flights(
                     bounds=bounds,
                     airline=airline,
                     aircraft_type=aircraft_type,
-                    details=enrich,
                 ),
                 max_retries=self.max_retries,
                 logger_obj=self.logger,
             )
 
+            # 2) Enrichissement best-effort, par vol (un échec n'annule pas la zone).
+            enriched_count = 0
+            if enrich and flights:
+                enriched_count = self._enrich_flights(flights)
+
             self.logger.info(
                 f"Collecté {len(flights)} vols "
-                f"(zone={zone_name or 'global'}, enriched={enrich})"
+                f"(zone={zone_name or 'global'}, enrichis={enriched_count})"
             )
 
             return flights
@@ -174,6 +181,28 @@ class FlightExtractor:
             # Fault-tolerance : on n'interrompt pas le batch, la zone retourne vide
             self.logger.error(f"Erreur lors de la collecte (zone={zone_name}): {e}")
             return []
+
+    def _enrich_flights(self, flights: List[Any]) -> int:
+        """
+        Enrichir les vols via get_flight_details() en parallèle, best-effort.
+
+        Un échec sur un vol (timeout, 429, etc.) est avalé : le vol reste non
+        enrichi mais la collecte de la zone n'est pas annulée.
+
+        Returns:
+            Nombre de vols effectivement enrichis.
+        """
+        enriched = 0
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {executor.submit(self.api.get_flight_details, f): f for f in flights}
+            for future in as_completed(futures):
+                flight = futures[future]
+                try:
+                    flight.set_flight_details(future.result())
+                    enriched += 1
+                except Exception as e:
+                    self.logger.debug(f"Enrichissement échoué pour {getattr(flight, 'id', '?')}: {e}")
+        return enriched
 
     def flights_to_dicts(
         self,

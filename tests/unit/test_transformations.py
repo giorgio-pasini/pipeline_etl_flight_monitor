@@ -28,12 +28,18 @@ _SCHEMA = StructType([
     StructField("airline_icao", StringType()),
     StructField("airline_name", StringType()),
     StructField("aircraft_code", StringType()),
+    StructField("aircraft_model", StringType()),
     StructField("on_ground", IntegerType()),
     StructField("is_valid", BooleanType()),
+    StructField("airline_iata", StringType()),
     StructField("origin_iata", StringType()),
     StructField("destination_iata", StringType()),
+    StructField("origin_airport_name", StringType()),
+    StructField("destination_airport_name", StringType()),
     StructField("origin_airport_country_code", StringType()),
     StructField("destination_airport_country_code", StringType()),
+    StructField("origin_airport_country_name", StringType()),
+    StructField("destination_airport_country_name", StringType()),
     StructField("origin_airport_latitude", DoubleType()),
     StructField("origin_airport_longitude", DoubleType()),
     StructField("destination_airport_latitude", DoubleType()),
@@ -186,3 +192,34 @@ class TestKpis:
         ]
         out = clean_and_enrich_bronze(_make_df(spark_session, rows))
         assert out.count() == 2  # A dédupliqué, B conservé
+
+
+class TestDimensions:
+    def test_dim_airports(self, enriched_df):
+        from src.transformations import build_dim_airports
+        rows = {r["airport_iata"]: r for r in build_dim_airports(enriched_df).collect()}
+        # JFK, LAX, ATL, CDG distincts
+        assert set(rows) == {"JFK", "LAX", "ATL", "CDG"}
+        assert rows["CDG"]["continent_code"] == "EU"
+        assert rows["JFK"]["continent_code"] == "NA"
+        assert rows["JFK"]["latitude"] == 40.6
+
+    def test_dim_airlines(self, enriched_df):
+        from src.transformations import build_dim_airlines
+        rows = {r["airline_icao"]: r for r in build_dim_airlines(enriched_df).collect()}
+        assert set(rows) == {"DAL", "AFR"}
+        assert rows["DAL"]["airline_name"] == "Delta"
+
+    def test_dim_aircraft_models(self, enriched_df):
+        from src.transformations import build_dim_aircraft_models
+        rows = {r["aircraft_code"]: r for r in build_dim_aircraft_models(enriched_df).collect()}
+        assert set(rows) == {"B738", "B739", "A320"}
+        assert rows["B738"]["manufacturer"] == "Boeing"
+        assert rows["A320"]["manufacturer"] == "Airbus"
+
+    def test_dim_countries_continents(self, enriched_df):
+        from src.transformations import build_dim_countries_continents
+        rows = {r["country_code"]: r for r in build_dim_countries_continents(enriched_df).collect()}
+        assert set(rows) == {"US", "FR"}
+        assert rows["US"]["continent_code"] == "NA"
+        assert rows["FR"]["continent_code"] == "EU"

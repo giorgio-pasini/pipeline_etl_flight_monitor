@@ -1252,7 +1252,112 @@ sortie (succès, extraction vide, exception) : métriques finalisées → sauveg
 
 ---
 
-## Résumé global (Étapes 1-9 complétées)
+# Étape 10 : Exécution réelle, enrichissement complet & contraintes API
+
+## 10.1 Contexte
+
+Lors de l'exécution réelle du job (`run_job.py`) contre l'API et l'écriture
+Parquet sous Windows, plusieurs problèmes d'infrastructure et de complétude des
+données sont apparus, non détectables par les tests unitaires (qui ne touchent
+ni l'API live ni l'écriture Parquet Windows).
+
+## 10.2 Correctifs d'infrastructure (Windows + API)
+
+| Symptôme | Cause | Correctif |
+|---|---|---|
+| Aucune donnée écrite, `_temporary` orphelin | `HADOOP_HOME`/`winutils.exe` absent (Spark-sur-Windows) | winutils.exe + hadoop.dll installés dans `C:\Users\<user>\hadoop\bin` |
+| `UnsatisfiedLinkError: NativeIO$Windows.access0` à l'écriture | `hadoop.dll` non chargé par la JVM | `spark.driver.extraLibraryPath` = `%HADOOP_HOME%/bin` dans `create_spark_session` (si `HADOOP_HOME` défini, Windows) |
+| `CANNOT_ACCEPT_OBJECT_IN_TYPE: DoubleType can not accept int` | l'API renvoie des `int` là où le schéma attend `double` | coercion `_to_float`/`_to_int` dans `flights_to_dicts` |
+| `UnicodeEncodeError` (✓/✅) en fin de job | console Windows en cp1252 | `setup_logging` force UTF-8 (stdout + FileHandler) |
+| Lenteur (counts recalculés) | DataFrame issu d'une liste locale, non caché | `.cache()` après validation (batch_job) et après enrichissement (Silver) |
+
+**Prérequis d'exécution sous Windows** (voir aussi `README` § exécution) :
+```powershell
+$env:HADOOP_HOME="C:\Users\<user>\hadoop"
+$env:PATH="$env:HADOOP_HOME\bin;$env:PATH"
+$env:PYSPARK_PYTHON="<chemin python.exe>"
+$env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
+python scripts\run_job.py --with-silver-gold
+```
+
+## 10.3 Enrichissement complet + couverture (dépasser le cap 1500)
+
+- **`enrich=True`** (`config.API_ENRICH_DETAILS`) : chaque vol est enrichi via
+  `get_flight_details()` (pays/coords aéroports, nom compagnie, modèle avion).
+  Indispensable à 4 des 7 KPIs (`longest_flight`, `continental_avg_distance`,
+  `continental_regional`, `airline_aircraft_top3`), vides sinon.
+- **Couverture par zones** (`config.COLLECTION_ZONES` = 9 zones top-level) : le cap
+  de **1500 vols ne concerne que l'appel global non borné** ; avec un `bounds`
+  (zone), la limite passe à **5000/appel**. `get_flights_for_zone` construit les
+  bounds ; `collect_and_convert` itère les zones et **déduplique** par `flight_id`
+  (les bounds se chevauchent).
+
+## 10.4 Dimensions Silver (star schema matérialisé)
+
+`src/transformations.py` — 4 fonctions construisent les dimensions **en Spark**
+(`distinct`/`union`) depuis le fact enrichi, écrites par `silver_gold_loader`
+dans `SILVER_PATH/{dim}/_current` (overwrite, snapshot courant) :
+- `build_dim_airports`, `build_dim_airlines`, `build_dim_aircraft_models`,
+  `build_dim_countries_continents` (conformes à `schemas.py::schema_dim_*` pour
+  les champs disponibles ; continent via `reference_data.continent_code_expr`,
+  constructeur via `manufacturer_expr`).
+
+Tests : `tests/unit/test_transformations.py::TestDimensions` (valeurs dérivées)
+et `tests/integration/test_silver_gold_loader.py` (écriture des 4 dims).
+
+## 10.5 Résilience aux échecs d'enrichissement
+
+Bug corrigé : wrapper `get_flights(details=True)` dans `retry_with_backoff`
+faisait qu'un **seul 429 d'un appel détaillé annulait toute la zone et
+re-téléchargeait tout** (feed + détails) → amplification. Désormais :
+- le **feed** est récupéré sous retry (`details=False`, appel léger/fiable) ;
+- l'**enrichissement** est best-effort par vol (`_enrich_flights`, ThreadPool +
+  try/except par vol) : un échec laisse le vol non enrichi sans annuler la zone.
+
+## 10.6 Contrainte observée : rate-limiting de l'API (HTTP 429)
+
+En exécution réelle, le tier gratuit/non-authentifié de FlightRadar24
+**rate-limite (HTTP 429)** sous la charge `enrich=True` × 9 zones (et l'usage
+cumulé). La fault-tolerance gère le cas (retry/backoff puis zone vide → batch
+non bloqué), mais la collecte peut revenir vide tant que le quota n'est pas
+réinitialisé.
+
+### Stratégies de contournement du quota (par ordre d'efficacité)
+
+**A. Réduire le NOMBRE d'appels (levier principal)**
+1. **Dimensions en bulk** : `get_airports()` + `get_airlines()` = ~3 appels au
+   lieu de milliers d'appels détaillés (architecturalement le plus propre).
+2. **Cache incrémental des dimensions** : persister `dim_*` et n'enrichir que les
+   entités **nouvelles** ; au fil des batches (2 h), les appels détaillés → ~0.
+3. **Enrichir un sous-ensemble** : seulement les vols valides en vol, ou un
+   échantillon.
+
+**B. Lisser le RYTHME (rester sous le seuil)**
+4. **Baisser `max_workers`** (8 → 2-3) : moins de concurrence sur les détails.
+5. **Throttling explicite** : délai contrôlé (token-bucket) entre appels/zones.
+6. **Backoff 429 adapté** : sur 429, attendre plus longtemps (respecter
+   `Retry-After`, ~30-60 s) au lieu de 1-2 s.
+7. **Rotation de zones** : 2-3 zones par run, couverture étalée sur plusieurs
+   cycles de 2 h.
+
+**C. Augmenter le QUOTA (officiel)**
+8. **Authentification** : `api.login(email, mot_de_passe)` (supporté par la
+   librairie) → limites bien supérieures. Compte FR24 (gratuit aide ; plan
+   Business/API idéal).
+
+**D. À éviter**
+9. Proxies / rotation d'IP : contre les CGU, fragile.
+
+**Recommandation** : combiner **6 + 4 + 2** (+ **8** si compte FR24 disponible) —
+backoff 429 long, concurrence réduite, cache incrémental des dimensions — pour un
+pipeline durablement robuste au quota tout en gardant `enrich=True`.
+
+**Status :** ✅ Infra Windows + enrichissement + dimensions livrés et testés ;
+⚠️ run live dépendant du quota API (stratégies de contournement documentées).
+
+---
+
+## Résumé global (Étapes 1-10 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1266,6 +1371,7 @@ sortie (succès, extraction vide, exception) : métriques finalisées → sauveg
 | 7 | Job final + Scheduling | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` | ✅ |
 | 8 | Revue de code & corrections | `src/reference_data.py`, `tests/unit/test_transformations.py`, `tests/unit/test_reference_data.py` + corrections globales | ✅ |
 | 9 | Fault-tolerance avancée (retries, alerting) | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` | ✅ |
+| 10 | Exécution réelle, enrichissement & dimensions | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 `build_dim_*`, résilience enrich, stratégies anti-quota | ✅ |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)
@@ -1280,12 +1386,18 @@ sortie (succès, extraction vide, exception) : métriques finalisées → sauveg
 - ✅ Scheduling automatique (Cron + Task Scheduler)
 - ✅ Données de référence réelles (continents, constructeurs)
 - ✅ Fault-tolerance : retries API (backoff) + alerting (fichier/log/webhook)
+- ✅ Enrichissement complet (`enrich=True`) + 9 zones (dépasse le cap 1500)
+- ✅ 4 dimensions Silver matérialisées (dim_airports/airlines/aircraft_models/countries_continents)
+- ✅ Infra Windows résolue (winutils/HADOOP_HOME, extraLibraryPath, UTF-8, coercion types)
+- ✅ Stratégies de contournement du quota API documentées
 - ✅ Documentation client (README_modele, README_quickstart, PARTITIONING.md, LOGGING.md, SCHEDULING.md)
 - ✅ Schémas Spark + data quality checks
-- ✅ Suite de tests étendue (unit + integration + E2E, incl. transformations & fault-tolerance)
+- ✅ Suite de tests étendue (unit + integration + E2E, incl. transformations, dimensions & fault-tolerance ; 73 passés)
 - ✅ Journal développement complet (documentation_dev.md)
 
-**Statut :** ✅ Les 9 étapes du plan sont complétées.
+**Statut :** ✅ Les 9 étapes du plan + le hardening d'exécution réelle (Étape 10)
+sont complétés. Le run live dépend du quota API (stratégies de contournement
+documentées en § 10.6).
 
 ---
 

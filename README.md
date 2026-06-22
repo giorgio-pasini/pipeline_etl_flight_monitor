@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 9 étapes complétées — pipeline unifié, durci, fault-tolerant, testé de bout en bout  
+**Statut :** 10 étapes — pipeline unifié, durci, fault-tolerant, enrichi (dimensions Silver), exécuté en réel sous Windows  
 **Date :** 2026-06-21
 
 ---
@@ -193,18 +193,35 @@ pip install -r requirements.txt
 # 2. Initialiser le datalake
 python scripts/init_datalake.py
 
-# 3. Lancer le POC (1 batch)
-python src/batch_job.py --single-batch --verbose
-
-# 4. Vérifier les données
-python -c "
-from pyspark.sql import SparkSession
-spark = SparkSession.builder.appName('Check').getOrCreate()
-df = spark.read.parquet('datalake/bronze/flights_raw')
-print(f'Vols collectés : {df.count()}')
-df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
-"
+# 3. Lancer le job complet (extract -> Bronze -> Silver/Gold)
+python scripts/run_job.py --with-silver-gold
 ```
+
+### ⚙️ Exécution sous Windows (prérequis Spark/Parquet)
+
+L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x).
+Une fois placés dans `C:\Users\<user>\hadoop\bin`, lancer via **PowerShell** :
+
+```powershell
+$env:HADOOP_HOME="C:\Users\<user>\hadoop"
+$env:PATH="$env:HADOOP_HOME\bin;$env:PATH"
+$env:PYSPARK_PYTHON="<chemin\python.exe>"
+$env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
+python scripts\run_job.py --with-silver-gold
+```
+
+`create_spark_session` ajoute automatiquement `spark.driver.extraLibraryPath`
+vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
+
+### Comportement de collecte
+- **`enrich=True`** (`API_ENRICH_DETAILS`) : enrichit chaque vol (pays/coords
+  aéroports, nom compagnie, modèle avion) — requis pour 4 des 7 KPIs.
+- **9 zones top-level** (`COLLECTION_ZONES`) avec `bounds` → dépasse le cap global
+  de 1500 vols (jusqu'à 5000/zone).
+- ⚠️ **Quota API** : le tier gratuit FlightRadar24 peut renvoyer HTTP 429 sous
+  cette charge. Stratégies de contournement (auth, throttling, cache incrémental
+  des dimensions, backoff 429) documentées dans
+  [documentation/documentation_dev.md](documentation/documentation_dev.md) § 10.6.
 
 **Pour plus de détails :** voir [README_quickstart.md](README_quickstart.md)
 
@@ -224,6 +241,7 @@ df.select('callsign', 'airline_icao', 'on_ground', 'is_valid').show(3)
 | 7 | Job final + Scheduling | ✅ | `scripts/run_job.py`, `scripts/schedule_job.sh`, `scripts/schedule_job.ps1`, `SCHEDULING.md` |
 | 8 | Revue de code & corrections | ✅ | `src/reference_data.py`, `tests/unit/test_transformations.py`, corrections globales |
 | 9 | Fault-tolerance avancée | ✅ | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` |
+| 10 | Exécution réelle, enrichissement & dimensions | ✅ | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 dimensions Silver, résilience enrich, anti-quota |
 
 ---
 
