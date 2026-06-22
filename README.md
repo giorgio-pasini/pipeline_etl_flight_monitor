@@ -131,7 +131,8 @@ API FlightRadar24 (temps-réel)
 - **`scripts/purge_old_partitions.py`** : Nettoyage par rétention (dry-run + execution)
 
 **Highlights :**
-- Partitionnement temporel spec kata : `tech_year/tech_month/tech_day/tech_hour`
+- Partitionnement temporel horodaté (requis) : **Bronze** → `tech_year/tech_month/tech_day/tech_hour` ;
+  **Silver & Gold** → `tech_year/tech_month/tech_day` (jusqu'au jour)
 - Rétention configurable : Bronze 30j, Silver 60j, Gold 365j
 - Scripts idempotents et avec safeguards
 

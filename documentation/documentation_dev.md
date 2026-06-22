@@ -1503,7 +1503,46 @@ métriques d'exécution.
 
 ---
 
-## Résumé global (Étapes 1-12 complétées)
+# Étape 13 : Partitionnement Silver & Gold jusqu'à tech_day
+
+## 13.1 Contexte
+
+Le requis impose une nomenclature horodatée jusqu'au **jour** (`tech_year=/tech_month=/
+tech_day=`). Bronze le respectait (jusqu'à `tech_hour`), mais **Silver** (`fact_flights`)
+et **Gold** (7 KPIs) s'arrêtaient à `tech_month`.
+
+## 13.2 Implémentation
+
+- `config/datalake_config.py` : `PARTITION_COLUMNS_SILVER = PARTITION_COLUMNS_GOLD =
+  ["tech_year", "tech_month", "tech_day"]` (l'ancien `PARTITION_COLUMNS_GOLD_KPI`
+  kpi_date/kpi_hour, inutilisé, est remplacé).
+- `src/silver_gold_loader.py` :
+  - Silver : `partitionBy(*PARTITION_COLUMNS_SILVER)` (le `silver_df` hérite déjà de
+    `tech_day` via la lecture Bronze).
+  - Gold : `load_gold` calcule `tech_day = now.strftime("%Y-%m-%d")` ; `_write_gold` écrit
+    `.../tech_year={Y}/tech_month={M}/tech_day={D}`.
+- `dashboard.py` : `_read_kpi` retire aussi `tech_day` de l'affichage.
+
+Les **dimensions** (`dim_*/_current`) restent non partitionnées (snapshots de référence,
+écrits en `overwrite`), ce ne sont pas des données événementielles.
+
+## 13.3 Tests
+
+`tests/integration/test_silver_gold_loader.py` : `tech_day` ajouté au schéma/rows Bronze de
+test + **assertions de conformité** vérifiant qu'un dossier `tech_day=*` existe sous
+`silver/fact_flights` **et** `gold/kpi_*` (hiérarchie `tech_year=/tech_month=/tech_day=`).
+
+## 13.4 Données live
+
+Silver/Gold existants (2 niveaux) régénérés depuis le Bronze (mélanger 2 et 3 niveaux dans
+un même dossier casserait la lecture Parquet).
+
+**Status :** ✅ Bronze (→ heure), **Silver & Gold (→ jour)** conformes au requis horodaté.
+Arborescence : `…/fact_flights/tech_year=2026/tech_month=2026-06/tech_day=2026-06-23/…`.
+
+---
+
+## Résumé global (Étapes 1-13 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1520,6 +1559,7 @@ métriques d'exécution.
 | 10 | Exécution réelle, enrichissement & dimensions | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 `build_dim_*`, résilience enrich, stratégies anti-quota | ✅ |
 | 11 | Anti-quota (login, backoff 429, dims bulk + cache) | `src/dimension_loader.py`, login/RetryPolicy dans `src/flight_extraction.py`, `enrich_with_dimensions`, `COUNTRY_NAME_TO_CODE` | ✅ |
 | 12 | Dashboard — page KPIs (Gold) | `dashboard.py` (`_read_kpi` + page « KPIs (Gold) »), `requirements.txt` (pyarrow), `LOGGING.md` | ✅ |
+| 13 | Partitionnement Silver & Gold → tech_day | `config/datalake_config.py`, `src/silver_gold_loader.py`, `tests/integration/test_silver_gold_loader.py` | ✅ |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)

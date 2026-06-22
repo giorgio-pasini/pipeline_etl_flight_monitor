@@ -247,16 +247,18 @@ class DatalakeConfig:
 # Constantes pour partitionnement
 # ============================================================================
 
+# Bronze : jusqu'à l'heure ; Silver & Gold : jusqu'au jour (nomenclature horodatée du requis).
 PARTITION_COLUMNS_BRONZE = ["tech_year", "tech_month", "tech_day", "tech_hour"]
-PARTITION_COLUMNS_SILVER = ["tech_year", "tech_month", "tech_day", "tech_hour"]
-PARTITION_COLUMNS_GOLD_KPI = ["kpi_date", "kpi_hour"]  # Format différent pour Gold
+PARTITION_COLUMNS_SILVER = ["tech_year", "tech_month", "tech_day"]
+PARTITION_COLUMNS_GOLD = ["tech_year", "tech_month", "tech_day"]
 
 PARTITION_DATE_FORMAT = "%Y-%m-%d"  # YYYY-MM-DD
 PARTITION_TIME_FORMAT = "%H"  # HH (00-23)
 
 # Exemple de chemin complet :
 # datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14/
-# datalake/gold/kpi_airline_volumes/kpi_date=2026-06-21/kpi_hour=14/
+# datalake/silver/fact_flights/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/
+# datalake/gold/kpi_airline_volumes/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/
 
 
 # ============================================================================

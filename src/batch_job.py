@@ -89,6 +89,7 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
         .master(config.SPARK_MASTER) \
         .config("spark.sql.shuffle.partitions", config.SPARK_SHUFFLE_PARTITIONS) \
         .config("spark.sql.adaptive.enabled", config.SPARK_ADAPTIVE_EXECUTION_ENABLED) \
+        .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false") \
         .config("spark.executor.memory", config.SPARK_EXECUTOR_MEMORY) \
         .config("spark.driver.memory", config.SPARK_DRIVER_MEMORY) \
         .config("spark.executor.cores", config.SPARK_EXECUTOR_CORES) \

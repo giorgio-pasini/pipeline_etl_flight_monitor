@@ -36,6 +36,7 @@ _BRONZE_SCHEMA = StructType([
     StructField("destination_airport_longitude", DoubleType()),
     StructField("tech_year", StringType()),
     StructField("tech_month", StringType()),
+    StructField("tech_day", StringType()),
     # Champs d'enrichissement (appendés en fin de schéma)
     StructField("airline_iata", StringType()),
     StructField("origin_airport_name", StringType()),
@@ -49,13 +50,13 @@ def _bronze_rows(ts):
     """Trois vols valides en l'air : DAL x2 (Boeing, US->US), AFR x1 (Airbus, FR->US)."""
     return [
         ("F1", ts, "DAL1", "DAL", "Delta", "B738", "Boeing 737-800", 0, True, "JFK", "LAX",
-         "US", "US", 40.6, -73.8, 33.9, -118.4, "2026", "2026-06",
+         "US", "US", 40.6, -73.8, 33.9, -118.4, "2026", "2026-06", "2026-06-21",
          "DL", "John F Kennedy", "Los Angeles Intl", "United States", "United States"),
         ("F2", ts, "DAL2", "DAL", "Delta", "B739", "Boeing 737-900", 0, True, "ATL", "JFK",
-         "US", "US", 33.6, -84.4, 40.6, -73.8, "2026", "2026-06",
+         "US", "US", 33.6, -84.4, 40.6, -73.8, "2026", "2026-06", "2026-06-21",
          "DL", "Atlanta", "John F Kennedy", "United States", "United States"),
         ("F3", ts, "AFR1", "AFR", "Air France", "A320", "Airbus A320", 0, True, "CDG", "JFK",
-         "FR", "US", 49.0, 2.55, 40.6, -73.8, "2026", "2026-06",
+         "FR", "US", 49.0, 2.55, 40.6, -73.8, "2026", "2026-06", "2026-06-21",
          "AF", "Paris CDG", "John F Kennedy", "France", "United States"),
     ]
 
@@ -106,6 +107,15 @@ def test_run_full_etl_end_to_end(spark_session, temp_datalake, parquet_write_sup
     assert {r["aircraft_code"] for r in dim_aircraft.collect()} == {"B738", "B739", "A320"}
     dim_countries = spark_session.read.parquet(DatalakeConfig.get_silver_dim_path("dim_countries_continents"))
     assert {r["country_code"] for r in dim_countries.collect()} == {"US", "FR"}
+
+    # Conformité au requis horodaté : Silver ET Gold partitionnés jusqu'à tech_day
+    from pathlib import Path
+    silver_days = list(Path(DatalakeConfig.SILVER_PATH, "fact_flights").glob("**/tech_day=*"))
+    assert silver_days, "Silver fact_flights doit être partitionné jusqu'à tech_day"
+    gold_days = list(Path(DatalakeConfig.GOLD_PATH, "kpi_airline_volumes").glob("**/tech_day=*"))
+    assert gold_days, "Gold doit être partitionné jusqu'à tech_day"
+    # La hiérarchie attendue : tech_year=/tech_month=/tech_day=
+    assert any("tech_month=" in str(p.parent) for p in gold_days)
 
 
 def test_run_full_etl_dedups_across_batches(spark_session, temp_datalake, parquet_write_supported):

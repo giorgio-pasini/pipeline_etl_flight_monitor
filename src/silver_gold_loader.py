@@ -9,6 +9,8 @@ import logging
 from pyspark.sql import SparkSession, DataFrame
 from datetime import datetime
 
+from config.datalake_config import PARTITION_COLUMNS_SILVER
+
 from .transformations import (
     clean_and_enrich_bronze,
     enrich_with_dimensions,
@@ -67,9 +69,9 @@ class SilverGoldLoader:
         silver_df = clean_and_enrich_bronze(fact)
         silver_df = silver_df.cache()  # réutilisé par fact + dimensions
 
-        # Écriture du fact en Silver
+        # Écriture du fact en Silver (partitionné jusqu'au jour : tech_year/month/day)
         silver_path = self.config.SILVER_PATH + "/fact_flights"
-        silver_df.write.mode("append").partitionBy("tech_year", "tech_month").parquet(silver_path)
+        silver_df.write.mode("append").partitionBy(*PARTITION_COLUMNS_SILVER).parquet(silver_path)
         logger.info(f"✓ Silver fact_flights loaded: {silver_path}")
 
         # Dimensions : bulk si fournies (référentiels complets), sinon dérivées du fact
@@ -112,57 +114,62 @@ class SilverGoldLoader:
         timestamp = datetime.now()
         tech_year = timestamp.strftime("%Y")
         tech_month = timestamp.strftime("%Y-%m")
+        tech_day = timestamp.strftime("%Y-%m-%d")
 
         # KPI 1 : Airline volumes
         logger.info("  Calculating KPI 1 : Airline volumes...")
         kpis['airline_volumes'] = kpi_airline_volumes(silver_df)
-        self._write_gold(kpis['airline_volumes'], "kpi_airline_volumes", tech_year, tech_month)
+        self._write_gold(kpis['airline_volumes'], "kpi_airline_volumes", tech_year, tech_month, tech_day)
 
         # KPI 2 : Continental regional
         logger.info("  Calculating KPI 2 : Continental regional...")
         kpis['continental_regional'] = kpi_continental_regional(silver_df)
-        self._write_gold(kpis['continental_regional'], "kpi_continental_regional", tech_year, tech_month)
+        self._write_gold(kpis['continental_regional'], "kpi_continental_regional", tech_year, tech_month, tech_day)
 
         # KPI 3 : Longest flight
         logger.info("  Calculating KPI 3 : Longest flight...")
         kpis['longest_flight'] = kpi_longest_flight(silver_df)
-        self._write_gold(kpis['longest_flight'], "kpi_longest_flight", tech_year, tech_month)
+        self._write_gold(kpis['longest_flight'], "kpi_longest_flight", tech_year, tech_month, tech_day)
 
         # KPI 4 : Continental avg distance
         logger.info("  Calculating KPI 4 : Continental avg distance...")
         kpis['continental_avg_distance'] = kpi_continental_avg_distance(silver_df)
-        self._write_gold(kpis['continental_avg_distance'], "kpi_continental_avg_distance", tech_year, tech_month)
+        self._write_gold(kpis['continental_avg_distance'], "kpi_continental_avg_distance", tech_year, tech_month, tech_day)
 
         # KPI 5 : Aircraft manufacturers
         logger.info("  Calculating KPI 5 : Aircraft manufacturers...")
         kpis['aircraft_manufacturers'] = kpi_aircraft_manufacturers(silver_df)
-        self._write_gold(kpis['aircraft_manufacturers'], "kpi_aircraft_manufacturers", tech_year, tech_month)
+        self._write_gold(kpis['aircraft_manufacturers'], "kpi_aircraft_manufacturers", tech_year, tech_month, tech_day)
 
         # KPI 6 : Airline aircraft top 3
         logger.info("  Calculating KPI 6 : Airline aircraft top 3...")
         kpis['airline_aircraft_top3'] = kpi_airline_aircraft_top3(silver_df)
-        self._write_gold(kpis['airline_aircraft_top3'], "kpi_airline_aircraft_top3", tech_year, tech_month)
+        self._write_gold(kpis['airline_aircraft_top3'], "kpi_airline_aircraft_top3", tech_year, tech_month, tech_day)
 
         # KPI BONUS : Airport imbalance
         logger.info("  Calculating KPI BONUS : Airport imbalance...")
         kpis['airport_imbalance'] = kpi_airport_imbalance(silver_df)
-        self._write_gold(kpis['airport_imbalance'], "kpi_airport_imbalance", tech_year, tech_month)
+        self._write_gold(kpis['airport_imbalance'], "kpi_airport_imbalance", tech_year, tech_month, tech_day)
 
         logger.info("✓ Gold layer loaded (7 KPIs)")
 
         return kpis
 
-    def _write_gold(self, df: DataFrame, table_name: str, tech_year: str, tech_month: str):
+    def _write_gold(self, df: DataFrame, table_name: str, tech_year: str, tech_month: str, tech_day: str):
         """
-        Écrire une table Gold en Parquet partitionnée.
+        Écrire une table Gold en Parquet partitionnée (jusqu'au jour : tech_year/month/day).
 
         Args:
             df: DataFrame KPI
             table_name: Nom de la table (ex: "kpi_airline_volumes")
             tech_year: Année (ex: "2026")
             tech_month: Mois (ex: "2026-06")
+            tech_day: Jour (ex: "2026-06-21")
         """
-        gold_path = f"{self.config.GOLD_PATH}/{table_name}/tech_year={tech_year}/tech_month={tech_month}"
+        gold_path = (
+            f"{self.config.GOLD_PATH}/{table_name}"
+            f"/tech_year={tech_year}/tech_month={tech_month}/tech_day={tech_day}"
+        )
 
         df.write.mode("append").parquet(gold_path)
 

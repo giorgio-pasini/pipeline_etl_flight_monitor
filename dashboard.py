@@ -32,7 +32,7 @@ def _read_kpi(name: str):
     if df is None or df.empty:
         return None
     # Colonnes techniques retirées de l'affichage
-    return df.drop(columns=[c for c in ("computed_at", "tech_year", "tech_month") if c in df.columns])
+    return df.drop(columns=[c for c in ("computed_at", "tech_year", "tech_month", "tech_day") if c in df.columns])
 
 
 st.set_page_config(
