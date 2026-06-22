@@ -377,7 +377,7 @@ def main():
 
         # Le job exécute UN batch puis se termine.
         # La récurrence (toutes les 2h) est gérée par un scheduler externe
-        # (cron / Task Scheduler — voir SCHEDULING.md), pas par une boucle interne.
+        # (cron / Task Scheduler — voir documentation/DOCUMENTATION.md § 6), pas par une boucle interne.
         success = run_batch(
             spark, DatalakeConfig, logger,
             zones=args.zones,
