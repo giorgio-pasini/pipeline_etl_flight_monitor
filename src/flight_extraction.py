@@ -104,20 +104,61 @@ def retry_with_backoff(
 class FlightExtractor:
     """Classe d'extraction des vols depuis l'API FlightRadarAPI."""
 
-    def __init__(self, timeout_seconds: int = 30, max_workers: int = 8, max_retries: int = 3):
+    def __init__(
+        self,
+        timeout_seconds: int = 30,
+        max_workers: int = 3,
+        max_retries: int = 3,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+        retry_max_attempts: int = 4,
+        retry_base_delay: float = 5.0,
+        retry_max_delay: float = 60.0,
+    ):
         """
         Initialiser l'extracteur.
 
         Args:
             timeout_seconds: Timeout pour chaque appel API
-            max_workers: Nombre de threads parallèles pour enrichissement
-            max_retries: Nombre de tentatives sur échec transitoire de l'API
+            max_workers: Threads parallèles (concurrence réduite = anti-429)
+            max_retries: Tentatives de la garde externe (feed)
+            email, password: Identifiants FR24 (login → quota plus élevé). Optionnels.
+            retry_*: Paramètres du RetryPolicy interne de la librairie (backoff sur 429)
         """
-        self.api = FlightRadar24API(timeout=timeout_seconds, max_workers=max_workers)
+        self.logger = logging.getLogger(__name__)
+
+        # RetryPolicy interne : (re)essaie les RequestsError (dont HTTP 429) avec backoff
+        # exponentiel sur TOUS les appels de la librairie (feed, airports, airlines, details).
+        retry = None
+        try:
+            from FlightRadarAPI import RetryPolicy
+            retry = RetryPolicy(
+                max_attempts=retry_max_attempts,
+                base_delay=retry_base_delay,
+                max_delay=retry_max_delay,
+            )
+        except Exception as e:  # version de lib sans RetryPolicy : on continue sans
+            self.logger.warning(f"RetryPolicy indisponible : {e}")
+
+        api_kwargs = {"timeout": timeout_seconds, "max_workers": max_workers}
+        if retry is not None:
+            api_kwargs["retry"] = retry
+        self.api = FlightRadar24API(**api_kwargs)
+
+        # Authentification optionnelle (ne jamais logguer le mot de passe).
+        if email and password:
+            try:
+                self.api.login(email, password)
+                if getattr(self.api, "is_logged_in", lambda: False)():
+                    self.logger.info(f"✓ FR24 login OK ({email})")
+                else:
+                    self.logger.warning("FR24 login : statut non confirmé, on continue anonyme")
+            except Exception as e:
+                self.logger.warning(f"FR24 login échoué ({email}) — on continue anonyme : {e}")
+
         self.timeout_seconds = timeout_seconds
         self.max_workers = max_workers
         self.max_retries = max_retries
-        self.logger = logging.getLogger(__name__)
 
     def get_flights_for_zone(
         self,
@@ -397,8 +438,13 @@ def extract_flights_batch(
 
     extractor = FlightExtractor(
         timeout_seconds=config.get("timeout", 30),
-        max_workers=config.get("max_workers", 8),
+        max_workers=config.get("max_workers", 3),
         max_retries=config.get("max_retries", 3),
+        email=config.get("email") or None,
+        password=config.get("password") or None,
+        retry_max_attempts=config.get("retry_max_attempts", 4),
+        retry_base_delay=config.get("retry_base_delay", 5.0),
+        retry_max_delay=config.get("retry_max_delay", 60.0),
     )
 
     df = extractor.collect_and_convert(

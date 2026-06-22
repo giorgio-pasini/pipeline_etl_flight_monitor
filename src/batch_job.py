@@ -155,10 +155,15 @@ def run_batch(
 
         extraction_config = {
             "zones": zones or config.COLLECTION_ZONES,
-            "enrich": config.API_ENRICH_DETAILS,  # détails par vol (pays/coords, noms)
+            "enrich": config.API_ENRICH_DETAILS,  # off : l'enrichissement vient des dims bulk
             "timeout": config.API_TIMEOUT_SECONDS,
             "max_workers": config.API_MAX_WORKERS_PARALLEL,
             "max_retries": config.API_MAX_RETRIES,
+            "email": config.FR24_EMAIL,
+            "password": config.FR24_PASSWORD,
+            "retry_max_attempts": config.API_RETRY_MAX_ATTEMPTS,
+            "retry_base_delay": config.API_RETRY_BASE_DELAY,
+            "retry_max_delay": config.API_RETRY_MAX_DELAY,
         }
 
         df = extract_flights_batch(spark, extraction_config)
@@ -252,8 +257,17 @@ def run_batch(
             start_phase = time.time()
 
             try:
+                # Dimensions de référence (bulk + cache) — enrichissement par jointure
+                logger.info("  Chargement des dimensions de référence (cache 7j)...")
+                from src.dimension_loader import load_all_dimensions
+                dims = load_all_dimensions(spark, config)
+
                 loader = SilverGoldLoader(spark, config)
-                etl_result = loader.run_full_etl(bronze_path)
+                etl_result = loader.run_full_etl(
+                    bronze_path,
+                    dim_airports=dims.get("dim_airports"),
+                    dim_airlines=dims.get("dim_airlines"),
+                )
 
                 metrics.set_gold(len(etl_result['gold_kpis']), time.time() - start_phase)
                 for kpi_name, kpi_df in etl_result['gold_kpis'].items():

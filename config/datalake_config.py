@@ -88,12 +88,26 @@ class DatalakeConfig:
     # ============================================================================
 
     API_TIMEOUT_SECONDS = 30
-    API_MAX_WORKERS_PARALLEL = 8  # Threads pour appels parallèles
-    API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", 3))  # Retries sur échec transitoire
+    # Concurrence réduite (anti-429) : moins d'appels simultanés.
+    API_MAX_WORKERS_PARALLEL = int(os.getenv("API_MAX_WORKERS_PARALLEL", 3))
+    API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", 3))  # Retries sur échec transitoire (feed)
 
-    # Enrichir chaque vol via get_flight_details (pays/coords aéroports, nom compagnie,
-    # modèle avion). Indispensable pour 4 des 7 KPIs. Coûteux (1 appel/vol, threadé).
-    API_ENRICH_DETAILS = os.getenv("API_ENRICH_DETAILS", "true").lower() == "true"
+    # Backoff interne de la librairie (RetryPolicy) — couvre tous les appels (dont 429).
+    API_RETRY_MAX_ATTEMPTS = int(os.getenv("API_RETRY_MAX_ATTEMPTS", 4))
+    API_RETRY_BASE_DELAY = float(os.getenv("API_RETRY_BASE_DELAY", 5.0))
+    API_RETRY_MAX_DELAY = float(os.getenv("API_RETRY_MAX_DELAY", 60.0))
+
+    # Authentification FR24 (quota plus élevé). Secrets via env, jamais en dur/loggués.
+    FR24_EMAIL = os.getenv("FR24_EMAIL", "")
+    FR24_PASSWORD = os.getenv("FR24_PASSWORD", "")
+
+    # Enrichissement par vol (get_flight_details) : DÉSACTIVÉ par défaut — l'enrichissement
+    # vient désormais des dimensions bulk (get_airports/get_airlines) jointes en Spark.
+    API_ENRICH_DETAILS = os.getenv("API_ENRICH_DETAILS", "false").lower() == "true"
+
+    # Cache des dimensions de référence (jours) : get_airports (249 pays) n'est rechargé
+    # que si le cache Silver est plus vieux que ce seuil.
+    DIM_CACHE_MAX_AGE_DAYS = int(os.getenv("DIM_CACHE_MAX_AGE_DAYS", 7))
 
     FLIGHTS_BATCH_SIZE_LIMIT = 1500  # Limite de vols retournés par get_flights() sans bounds
 

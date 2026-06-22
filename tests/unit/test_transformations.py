@@ -194,6 +194,68 @@ class TestKpis:
         assert out.count() == 2  # A dédupliqué, B conservé
 
 
+class TestEnrichWithDimensions:
+    """enrich_with_dimensions : remplit le fact par jointure avec les dims de référence."""
+
+    _FACT = StructType([
+        StructField("flight_id", StringType()),
+        StructField("airline_icao", StringType()),
+        StructField("origin_iata", StringType()),
+        StructField("destination_iata", StringType()),
+        StructField("airline_name", StringType()),
+        StructField("origin_airport_country_name", StringType()),
+        StructField("origin_airport_country_code", StringType()),
+        StructField("origin_airport_latitude", DoubleType()),
+        StructField("origin_airport_longitude", DoubleType()),
+        StructField("destination_airport_country_name", StringType()),
+        StructField("destination_airport_country_code", StringType()),
+        StructField("destination_airport_latitude", DoubleType()),
+        StructField("destination_airport_longitude", DoubleType()),
+    ])
+    _DIM_AIRPORTS = StructType([
+        StructField("airport_iata", StringType()),
+        StructField("country_name", StringType()),
+        StructField("country_code", StringType()),
+        StructField("latitude", DoubleType()),
+        StructField("longitude", DoubleType()),
+    ])
+    _DIM_AIRLINES = StructType([
+        StructField("airline_icao", StringType()),
+        StructField("airline_name", StringType()),
+    ])
+
+    def test_fills_from_dimensions(self, spark_session):
+        from src.transformations import enrich_with_dimensions
+        # fact feed-only : clés présentes, enrichissement null
+        fact = spark_session.createDataFrame(
+            [("F1", "AFR", "CDG", "JFK", None, None, None, None, None, None, None, None, None)],
+            schema=self._FACT,
+        )
+        airports = spark_session.createDataFrame(
+            [("CDG", "France", "FR", 49.0, 2.55), ("JFK", "United States", "US", 40.6, -73.8)],
+            schema=self._DIM_AIRPORTS,
+        )
+        airlines = spark_session.createDataFrame(
+            [("AFR", "Air France")], schema=self._DIM_AIRLINES,
+        )
+
+        out = enrich_with_dimensions(fact, airports, airlines).collect()[0]
+        assert out["origin_airport_country_code"] == "FR"
+        assert out["origin_airport_latitude"] == 49.0
+        assert out["destination_airport_country_code"] == "US"
+        assert out["destination_airport_latitude"] == 40.6
+        assert out["airline_name"] == "Air France"
+
+    def test_no_dims_is_noop(self, spark_session):
+        from src.transformations import enrich_with_dimensions
+        fact = spark_session.createDataFrame(
+            [("F1", "AFR", "CDG", "JFK", None, None, None, None, None, None, None, None, None)],
+            schema=self._FACT,
+        )
+        out = enrich_with_dimensions(fact, None, None)
+        assert out.count() == 1  # pas de jointure, pas d'erreur
+
+
 class TestDimensions:
     def test_dim_airports(self, enriched_df):
         from src.transformations import build_dim_airports

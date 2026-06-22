@@ -2,7 +2,7 @@
 
 **Client :** Exalt (Technical Assessment)  
 **Langue :** Français  
-**Statut :** 10 étapes — pipeline unifié, durci, fault-tolerant, enrichi (dimensions Silver), exécuté en réel sous Windows  
+**Statut :** 11 étapes — pipeline unifié, durci, fault-tolerant, enrichi par dimensions bulk + cache (anti-quota), exécuté en réel sous Windows  
 **Date :** 2026-06-21
 
 ---
@@ -207,21 +207,25 @@ $env:HADOOP_HOME="C:\Users\<user>\hadoop"
 $env:PATH="$env:HADOOP_HOME\bin;$env:PATH"
 $env:PYSPARK_PYTHON="<chemin\python.exe>"
 $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
+# Identifiants FR24 (quota plus élevé) — un mot de passe FR24 est requis
+$env:FR24_EMAIL="<votre_email>"
+$env:FR24_PASSWORD="<votre_mot_de_passe_FR24>"
 python scripts\run_job.py --with-silver-gold
 ```
 
 `create_spark_session` ajoute automatiquement `spark.driver.extraLibraryPath`
 vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
 
-### Comportement de collecte
-- **`enrich=True`** (`API_ENRICH_DETAILS`) : enrichit chaque vol (pays/coords
-  aéroports, nom compagnie, modèle avion) — requis pour 4 des 7 KPIs.
+### Comportement de collecte (anti-quota)
+- **Enrichissement par dimensions bulk** (au lieu de `get_flight_details` par vol) :
+  `get_airlines()` (1 appel) + `get_airports()` (249 pays, **caché 7 j**) → joints au
+  fact en Spark. `API_ENRICH_DETAILS=false` par défaut.
 - **9 zones top-level** (`COLLECTION_ZONES`) avec `bounds` → dépasse le cap global
-  de 1500 vols (jusqu'à 5000/zone).
-- ⚠️ **Quota API** : le tier gratuit FlightRadar24 peut renvoyer HTTP 429 sous
-  cette charge. Stratégies de contournement (auth, throttling, cache incrémental
-  des dimensions, backoff 429) documentées dans
-  [documentation/documentation_dev.md](documentation/documentation_dev.md) § 10.6.
+  de 1500 vols (jusqu'à 5000/zone) ; dédup cross-zones.
+- **Résilience quota** : login FR24 (`FR24_EMAIL`/`FR24_PASSWORD`), `RetryPolicy`
+  (backoff sur HTTP 429), `max_workers=3`. ⚠️ Un compte FR24 « via Google » doit avoir
+  un **mot de passe** défini pour que le login fonctionne.
+- Détails et autres stratégies : [documentation/documentation_dev.md](documentation/documentation_dev.md) § 10.6 / § 11.
 
 **Pour plus de détails :** voir [README_quickstart.md](README_quickstart.md)
 
@@ -242,6 +246,7 @@ vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
 | 8 | Revue de code & corrections | ✅ | `src/reference_data.py`, `tests/unit/test_transformations.py`, corrections globales |
 | 9 | Fault-tolerance avancée | ✅ | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` |
 | 10 | Exécution réelle, enrichissement & dimensions | ✅ | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 dimensions Silver, résilience enrich, anti-quota |
+| 11 | Anti-quota (login, backoff 429, dims bulk + cache) | ✅ | `src/dimension_loader.py`, login/RetryPolicy, `enrich_with_dimensions`, `COUNTRY_NAME_TO_CODE` |
 
 ---
 

@@ -11,6 +11,7 @@ from datetime import datetime
 
 from .transformations import (
     clean_and_enrich_bronze,
+    enrich_with_dimensions,
     kpi_airline_volumes,
     kpi_continental_regional,
     kpi_longest_flight,
@@ -41,47 +42,54 @@ class SilverGoldLoader:
         self.spark = spark
         self.config = datalake_config
 
-    def load_silver(self, bronze_df: DataFrame) -> DataFrame:
+    def load_silver(self, bronze_df: DataFrame, dim_airports=None, dim_airlines=None) -> DataFrame:
         """
         Charger la couche Silver.
 
         Opérations :
-        - Nettoyage (dedup, normalisation)
-        - Enrichissement (continents, distances)
-        - Écriture en Parquet partitionnée
+        - Enrichissement par jointure avec les dimensions de référence (si fournies)
+        - Nettoyage (dedup, continent, distance)
+        - Écriture en Parquet partitionnée + dimensions
 
         Args:
-            bronze_df: DataFrame Bronze
+            bronze_df: DataFrame Bronze (feed)
+            dim_airports, dim_airlines: dimensions de référence bulk (optionnelles)
 
         Returns:
             DataFrame Silver (fact_flights enrichi)
         """
         logger.info("Loading Silver layer...")
 
-        # Nettoyage et enrichissement
-        silver_df = clean_and_enrich_bronze(bronze_df)
-        silver_df = silver_df.cache()  # réutilisé par fact + 4 dimensions
+        # Enrichissement par jointure (remplit pays/coords/airline_name depuis les dims)
+        fact = enrich_with_dimensions(bronze_df, dim_airports, dim_airlines)
+
+        # Nettoyage + dérivations (continent, distance, manufacturer)
+        silver_df = clean_and_enrich_bronze(fact)
+        silver_df = silver_df.cache()  # réutilisé par fact + dimensions
 
         # Écriture du fact en Silver
         silver_path = self.config.SILVER_PATH + "/fact_flights"
         silver_df.write.mode("append").partitionBy("tech_year", "tech_month").parquet(silver_path)
         logger.info(f"✓ Silver fact_flights loaded: {silver_path}")
 
-        # Dimensions dérivées (snapshot courant, overwrite)
-        self._load_dimensions(silver_df)
+        # Dimensions : bulk si fournies (référentiels complets), sinon dérivées du fact
+        self._load_dimensions(silver_df, dim_airports, dim_airlines)
 
         return silver_df
 
-    def _load_dimensions(self, silver_df: DataFrame) -> None:
-        """Construire et écrire les 4 tables de dimensions dans Silver."""
-        builders = {
-            "dim_airports": build_dim_airports,
-            "dim_airlines": build_dim_airlines,
-            "dim_aircraft_models": build_dim_aircraft_models,
-            "dim_countries_continents": build_dim_countries_continents,
+    def _load_dimensions(self, silver_df: DataFrame, dim_airports=None, dim_airlines=None) -> None:
+        """Écrire les 4 tables de dimensions dans Silver.
+
+        dim_airports / dim_airlines : référentiels bulk si fournis, sinon dérivés du fact.
+        dim_aircraft_models / dim_countries_continents : toujours dérivés du fact.
+        """
+        dims = {
+            "dim_airports": dim_airports if dim_airports is not None else build_dim_airports(silver_df),
+            "dim_airlines": dim_airlines if dim_airlines is not None else build_dim_airlines(silver_df),
+            "dim_aircraft_models": build_dim_aircraft_models(silver_df),
+            "dim_countries_continents": build_dim_countries_continents(silver_df),
         }
-        for name, builder in builders.items():
-            dim_df = builder(silver_df)
+        for name, dim_df in dims.items():
             path = self.config.get_silver_dim_path(name)
             dim_df.write.mode("overwrite").parquet(path)
             logger.info(f"  ✓ {name}: {dim_df.count()} lignes -> {path}")
@@ -160,12 +168,13 @@ class SilverGoldLoader:
 
         logger.info(f"    ✓ {table_name} written to {gold_path}")
 
-    def run_full_etl(self, bronze_path: str) -> dict:
+    def run_full_etl(self, bronze_path: str, dim_airports=None, dim_airlines=None) -> dict:
         """
         Exécuter le pipeline complet Bronze → Silver → Gold.
 
         Args:
             bronze_path: Chemin vers les données Bronze
+            dim_airports, dim_airlines: dimensions de référence bulk (optionnelles)
 
         Returns:
             Dict[silver, gold_kpis] avec les DataFrames
@@ -179,8 +188,8 @@ class SilverGoldLoader:
         bronze_df = self.spark.read.parquet(bronze_path)
         logger.info(f"✓ {bronze_df.count()} rows read from Bronze")
 
-        # Load Silver
-        silver_df = self.load_silver(bronze_df)
+        # Load Silver (enrichi par jointure avec les dimensions si fournies)
+        silver_df = self.load_silver(bronze_df, dim_airports, dim_airlines)
 
         # Load Gold
         gold_kpis = self.load_gold(silver_df)

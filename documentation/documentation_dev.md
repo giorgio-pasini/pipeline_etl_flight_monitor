@@ -1357,7 +1357,86 @@ pipeline durablement robuste au quota tout en gardant `enrich=True`.
 
 ---
 
-## Résumé global (Étapes 1-10 complétées)
+# Étape 11 : Implémentation anti-quota (login, backoff 429, dims bulk + cache)
+
+## 11.1 Objectif
+
+Rendre le run live soutenable face au rate-limit en implémentant les stratégies
+**8, 6, 4, 2, 1** du § 10.6. **Bascule architecturale** : l'enrichissement par vol
+(`get_flight_details`, des milliers d'appels) est remplacé par des **dimensions de
+référence chargées en bulk, mises en cache, et jointes au fact en Spark**.
+
+## 11.2 Authentification + backoff + concurrence (8 / 6 / 4)
+
+`src/flight_extraction.py` — `FlightExtractor.__init__` construit l'API avec :
+- **login** (strat. 8) : `FlightRadar24API(user=email, password=pwd, ...)` ; identifiants
+  via env `FR24_EMAIL`/`FR24_PASSWORD` (jamais loggués) ; `try/except` → si échec, on
+  continue **anonyme**.
+- **RetryPolicy** (strat. 6) : `retry=RetryPolicy(max_attempts, base_delay, max_delay)` —
+  la librairie (curl_cffi) réessaie les `RequestsError` (dont **HTTP 429**) avec backoff
+  exponentiel sur **tous** ses appels internes.
+- **`max_workers=3`** (strat. 4) : concurrence réduite (config `API_MAX_WORKERS_PARALLEL`).
+
+⚠️ **Caveat compte Google** : un compte FR24 créé via « Continue with Google » n'a pas
+forcément de mot de passe ; `login(email, password)` en exige un → définir un mot de
+passe FR24 sinon le login échoue (pipeline alors anonyme).
+
+## 11.3 Dimensions bulk + cache (1 / 2)
+
+`src/dimension_loader.py` (NOUVEAU) :
+- `load_dim_airlines(spark, api, config)` : `get_airlines()` (**1 appel**) →
+  DataFrame `(airline_icao, airline_iata, airline_name, last_updated)`.
+- `load_dim_airports(spark, api, config)` : `get_airports(list(Countries))` (**249 pays**) →
+  DataFrame `(airport_iata, …, country_name, country_code, continent_code, latitude,
+  longitude, last_updated)`. Le `country_code`/`continent_code` sont dérivés du **nom**
+  via `reference_data`.
+- **Cache** (strat. 2) : `_cache_fresh(path, DIM_CACHE_MAX_AGE_DAYS)` — si le cache Silver
+  est plus récent que 7 j, on le relit (0 appel) ; sinon rechargement bulk + écriture.
+- `load_all_dimensions(spark, config)` : crée une API authentifiée et retourne les 2 dims.
+
+`src/reference_data.py` : ajout `COUNTRY_NAME_TO_CODE` (nom FR24 → ISO alpha-2, clé
+normalisée tolérant « United States » / « united-states ») + `country_code_from_name_expr`.
+Le continent reste dérivé du code (`continent_code_expr` inchangé).
+
+## 11.4 Jointure d'enrichissement en Silver
+
+`src/transformations.py::enrich_with_dimensions(fact, dim_airports, dim_airlines)` :
+left-joins `origin/destination_iata → dim_airports` (pays/coords) et
+`airline_icao → dim_airlines` (nom). `clean_and_enrich_bronze` **inchangé** calcule
+ensuite continent/distance/manufacturer → aucun test existant cassé.
+
+`silver_gold_loader.load_silver(bronze_df, dim_airports, dim_airlines)` : enrichit par
+jointure avant `clean_and_enrich`, puis écrit le fact ; les dims `dim_airports`/
+`dim_airlines` écrites sont les **référentiels bulk** (si fournis), `dim_aircraft_models`/
+`dim_countries_continents` restent dérivées du fact. `batch_job` charge les dims (cache)
+puis appelle `run_full_etl(bronze_path, dims)`.
+
+## 11.5 Config (`config/datalake_config.py`)
+
+`FR24_EMAIL`/`FR24_PASSWORD` (env), `API_MAX_WORKERS_PARALLEL=3`, `API_ENRICH_DETAILS=false`,
+`API_RETRY_MAX_ATTEMPTS=4`/`API_RETRY_BASE_DELAY=5`/`API_RETRY_MAX_DELAY=60`,
+`DIM_CACHE_MAX_AGE_DAYS=7` (tous env-overridables).
+
+## 11.6 Quota attendu
+
+Par run : ~9 appels feed (+ backoff) + 1 `get_airlines` ; `get_airports` (249)
+**seulement** au 1er build puis 0 pendant 7 j (cache). vs des milliers d'appels détaillés.
+
+## 11.7 Tests
+
+- `tests/unit/test_reference_data.py` : `COUNTRY_NAME_TO_CODE` (display & URL-friendly),
+  cohérence code→continent.
+- `tests/unit/test_transformations.py::TestEnrichWithDimensions` : jointure remplit
+  pays/coords/airline_name ; no-op sans dims.
+- `tests/unit/test_dimension_loader.py` : `_cache_fresh` (frais/vieux/absent) ;
+  `load_dim_airlines` avec API mockée (gated Parquet).
+
+**Status :** ✅ Stratégies anti-quota implémentées et testées. Run live à relancer
+avec `FR24_EMAIL`/`FR24_PASSWORD` définis (mot de passe FR24 requis).
+
+---
+
+## Résumé global (Étapes 1-11 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1372,6 +1451,7 @@ pipeline durablement robuste au quota tout en gardant `enrich=True`.
 | 8 | Revue de code & corrections | `src/reference_data.py`, `tests/unit/test_transformations.py`, `tests/unit/test_reference_data.py` + corrections globales | ✅ |
 | 9 | Fault-tolerance avancée (retries, alerting) | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` | ✅ |
 | 10 | Exécution réelle, enrichissement & dimensions | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 `build_dim_*`, résilience enrich, stratégies anti-quota | ✅ |
+| 11 | Anti-quota (login, backoff 429, dims bulk + cache) | `src/dimension_loader.py`, login/RetryPolicy dans `src/flight_extraction.py`, `enrich_with_dimensions`, `COUNTRY_NAME_TO_CODE` | ✅ |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)

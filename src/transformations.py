@@ -27,6 +27,69 @@ EARTH_RADIUS_KM = 6371.0
 
 
 # ============================================================================
+# SILVER — Enrichissement par jointure avec les dimensions de référence
+# ============================================================================
+
+def enrich_with_dimensions(fact_df: DataFrame, dim_airports=None, dim_airlines=None) -> DataFrame:
+    """
+    Remplir les colonnes d'enrichissement du fact par jointure Spark avec les
+    dimensions de référence (chargées en bulk + cachées) — alternative aux appels
+    get_flight_details par vol.
+
+    - origin/destination_iata -> dim_airports : country_name/_code, latitude, longitude
+    - airline_icao            -> dim_airlines : airline_name
+
+    Les valeurs existantes (si enrich=True a déjà rempli) sont préservées (coalesce).
+    """
+    if dim_airports is not None:
+        # Origine
+        oa = dim_airports.select(
+            col("airport_iata").alias("_o_iata"),
+            col("country_name").alias("_o_cn"),
+            col("country_code").alias("_o_cc"),
+            col("latitude").alias("_o_lat"),
+            col("longitude").alias("_o_lon"),
+        )
+        fact_df = (
+            fact_df.join(oa, fact_df["origin_iata"] == oa["_o_iata"], "left")
+            .withColumn("origin_airport_country_name", coalesce(col("origin_airport_country_name"), col("_o_cn")))
+            .withColumn("origin_airport_country_code", coalesce(col("origin_airport_country_code"), col("_o_cc")))
+            .withColumn("origin_airport_latitude", coalesce(col("origin_airport_latitude"), col("_o_lat")))
+            .withColumn("origin_airport_longitude", coalesce(col("origin_airport_longitude"), col("_o_lon")))
+            .drop("_o_iata", "_o_cn", "_o_cc", "_o_lat", "_o_lon")
+        )
+        # Destination
+        da = dim_airports.select(
+            col("airport_iata").alias("_d_iata"),
+            col("country_name").alias("_d_cn"),
+            col("country_code").alias("_d_cc"),
+            col("latitude").alias("_d_lat"),
+            col("longitude").alias("_d_lon"),
+        )
+        fact_df = (
+            fact_df.join(da, fact_df["destination_iata"] == da["_d_iata"], "left")
+            .withColumn("destination_airport_country_name", coalesce(col("destination_airport_country_name"), col("_d_cn")))
+            .withColumn("destination_airport_country_code", coalesce(col("destination_airport_country_code"), col("_d_cc")))
+            .withColumn("destination_airport_latitude", coalesce(col("destination_airport_latitude"), col("_d_lat")))
+            .withColumn("destination_airport_longitude", coalesce(col("destination_airport_longitude"), col("_d_lon")))
+            .drop("_d_iata", "_d_cn", "_d_cc", "_d_lat", "_d_lon")
+        )
+
+    if dim_airlines is not None:
+        al = dim_airlines.select(
+            col("airline_icao").alias("_a_icao"),
+            col("airline_name").alias("_a_name"),
+        )
+        fact_df = (
+            fact_df.join(al, fact_df["airline_icao"] == al["_a_icao"], "left")
+            .withColumn("airline_name", coalesce(col("airline_name"), col("_a_name")))
+            .drop("_a_icao", "_a_name")
+        )
+
+    return fact_df
+
+
+# ============================================================================
 # SILVER — Nettoyage et enrichissement
 # ============================================================================
 

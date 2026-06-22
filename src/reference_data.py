@@ -10,7 +10,9 @@ utilisables directement dans les transformations.
 """
 
 from pyspark.sql import Column
-from pyspark.sql.functions import col, create_map, lit, coalesce, upper, substring
+from pyspark.sql.functions import (
+    col, create_map, lit, coalesce, upper, lower, substring, regexp_replace,
+)
 from itertools import chain
 
 # ============================================================================
@@ -90,6 +92,93 @@ AIRCRAFT_PREFIX_TO_MANUFACTURER = {
     "IL": "Ilyushin",
     "TU": "Tupolev",
 }
+
+
+# ============================================================================
+# Nom de pays (FR24) -> code ISO alpha-2
+# `get_airports()` renvoie le NOM du pays (pas le code). On mappe ici les noms
+# (display ou URL-friendly) vers le code ISO, via une clé normalisée
+# (minuscules, lettres uniquement) pour tolérer "United States" / "united-states".
+# ============================================================================
+
+def _norm(name: str) -> str:
+    return "".join(c for c in name.lower() if c.isalpha())
+
+
+_COUNTRY_NAME_TO_CODE_RAW = {
+    # Europe
+    "Albania": "AL", "Andorra": "AD", "Austria": "AT", "Belarus": "BY",
+    "Belgium": "BE", "Bosnia and Herzegovina": "BA", "Bulgaria": "BG",
+    "Croatia": "HR", "Cyprus": "CY", "Czech Republic": "CZ", "Czechia": "CZ",
+    "Denmark": "DK", "Estonia": "EE", "Finland": "FI", "France": "FR",
+    "Germany": "DE", "Greece": "GR", "Hungary": "HU", "Iceland": "IS",
+    "Ireland": "IE", "Italy": "IT", "Latvia": "LV", "Liechtenstein": "LI",
+    "Lithuania": "LT", "Luxembourg": "LU", "Malta": "MT", "Moldova": "MD",
+    "Monaco": "MC", "Montenegro": "ME", "Netherlands": "NL",
+    "North Macedonia": "MK", "Macedonia": "MK", "Norway": "NO", "Poland": "PL",
+    "Portugal": "PT", "Romania": "RO", "Russia": "RU",
+    "Russian Federation": "RU", "San Marino": "SM", "Serbia": "RS",
+    "Slovakia": "SK", "Slovenia": "SI", "Spain": "ES", "Sweden": "SE",
+    "Switzerland": "CH", "Ukraine": "UA", "United Kingdom": "GB",
+    # North America
+    "Canada": "CA", "United States": "US",
+    "United States of America": "US", "Mexico": "MX", "Guatemala": "GT",
+    "Belize": "BZ", "El Salvador": "SV", "Honduras": "HN", "Nicaragua": "NI",
+    "Costa Rica": "CR", "Panama": "PA", "Cuba": "CU",
+    "Dominican Republic": "DO", "Haiti": "HT", "Jamaica": "JM",
+    "Bahamas": "BS", "Trinidad and Tobago": "TT", "Puerto Rico": "PR",
+    # South America
+    "Argentina": "AR", "Bolivia": "BO", "Brazil": "BR", "Chile": "CL",
+    "Colombia": "CO", "Ecuador": "EC", "Guyana": "GY", "Paraguay": "PY",
+    "Peru": "PE", "Suriname": "SR", "Uruguay": "UY", "Venezuela": "VE",
+    # Asia
+    "Afghanistan": "AF", "Armenia": "AM", "Azerbaijan": "AZ", "Bahrain": "BH",
+    "Bangladesh": "BD", "Bhutan": "BT", "Brunei": "BN", "Cambodia": "KH",
+    "China": "CN", "Georgia": "GE", "India": "IN", "Indonesia": "ID",
+    "Iran": "IR", "Iraq": "IQ", "Israel": "IL", "Japan": "JP", "Jordan": "JO",
+    "Kazakhstan": "KZ", "Kuwait": "KW", "Kyrgyzstan": "KG", "Laos": "LA",
+    "Lebanon": "LB", "Malaysia": "MY", "Maldives": "MV", "Mongolia": "MN",
+    "Myanmar": "MM", "Nepal": "NP", "North Korea": "KP", "Oman": "OM",
+    "Pakistan": "PK", "Philippines": "PH", "Qatar": "QA", "Saudi Arabia": "SA",
+    "Singapore": "SG", "South Korea": "KR", "Sri Lanka": "LK", "Syria": "SY",
+    "Taiwan": "TW", "Tajikistan": "TJ", "Thailand": "TH", "Turkey": "TR",
+    "Turkmenistan": "TM", "United Arab Emirates": "AE", "Uzbekistan": "UZ",
+    "Vietnam": "VN", "Yemen": "YE", "Hong Kong": "HK", "Macau": "MO",
+    # Africa
+    "Algeria": "DZ", "Angola": "AO", "Benin": "BJ", "Botswana": "BW",
+    "Burkina Faso": "BF", "Burundi": "BI", "Cameroon": "CM", "Cape Verde": "CV",
+    "Chad": "TD", "Congo": "CG", "Democratic Republic of the Congo": "CD",
+    "Ivory Coast": "CI", "Djibouti": "DJ", "Egypt": "EG", "Eritrea": "ER",
+    "Ethiopia": "ET", "Gabon": "GA", "Gambia": "GM", "Ghana": "GH",
+    "Guinea": "GN", "Kenya": "KE", "Lesotho": "LS", "Liberia": "LR",
+    "Libya": "LY", "Madagascar": "MG", "Malawi": "MW", "Mali": "ML",
+    "Mauritania": "MR", "Mauritius": "MU", "Morocco": "MA", "Mozambique": "MZ",
+    "Namibia": "NA", "Niger": "NE", "Nigeria": "NG", "Rwanda": "RW",
+    "Senegal": "SN", "Seychelles": "SC", "Sierra Leone": "SL", "Somalia": "SO",
+    "South Africa": "ZA", "South Sudan": "SS", "Sudan": "SD", "Tanzania": "TZ",
+    "Togo": "TG", "Tunisia": "TN", "Uganda": "UG", "Zambia": "ZM",
+    "Zimbabwe": "ZW",
+    # Oceania
+    "Australia": "AU", "Fiji": "FJ", "Kiribati": "KI", "New Zealand": "NZ",
+    "Papua New Guinea": "PG", "Samoa": "WS", "Solomon Islands": "SB",
+    "Tonga": "TO", "Vanuatu": "VU", "New Caledonia": "NC",
+    "French Polynesia": "PF",
+}
+
+# Clé normalisée -> code ISO (tolère display name et URL-friendly)
+COUNTRY_NAME_TO_CODE = {_norm(name): code for name, code in _COUNTRY_NAME_TO_CODE_RAW.items()}
+
+
+def country_code_from_name_expr(country_name_col: str) -> Column:
+    """
+    Expression Spark : nom de pays (FR24) -> code ISO alpha-2.
+
+    Normalise la colonne (minuscules, lettres uniquement) avant lookup.
+    Retourne NULL si inconnu.
+    """
+    norm = regexp_replace(lower(col(country_name_col)), "[^a-z]", "")
+    mapping = create_map([lit(x) for x in chain(*COUNTRY_NAME_TO_CODE.items())])
+    return mapping[norm]
 
 
 def continent_code_expr(country_code_col: str) -> Column:
