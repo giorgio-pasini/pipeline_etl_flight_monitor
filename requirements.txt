@@ -4,6 +4,7 @@
 pyspark==3.5.0
 numpy==1.26.0
 pandas==2.1.0
+pyarrow>=12.0  # lecture Parquet pandas (dashboard KPIs Gold, sans Spark)
 
 # API
 FlightRadarAPI==1.5.1

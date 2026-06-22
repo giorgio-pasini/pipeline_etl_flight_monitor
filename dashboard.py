@@ -13,6 +13,27 @@ import json
 
 from src.job_metrics import JobMetrics
 
+try:
+    from config.datalake_config import DatalakeConfig
+    GOLD_DIR = DatalakeConfig.GOLD_PATH
+except Exception:
+    GOLD_DIR = "datalake/gold"
+
+
+def _read_kpi(name: str):
+    """Lire une table KPI Gold (Parquet partitionné) via pandas. None si absente/vide."""
+    path = Path(GOLD_DIR) / name
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    # Colonnes techniques retirées de l'affichage
+    return df.drop(columns=[c for c in ("computed_at", "tech_year", "tech_month") if c in df.columns])
+
 
 st.set_page_config(
     page_title="Pipeline ETL Dashboard",
@@ -32,12 +53,118 @@ with st.sidebar:
     st.header("📊 Navigation")
     page = st.radio(
         "Select view",
-        ["Last Execution", "Execution History", "KPI Summary"],
+        ["KPIs (Gold)", "Last Execution", "Execution History", "KPI Summary"],
         label_visibility="collapsed"
     )
 
     st.markdown("---")
-    st.write("📁 Logs directory: `datalake/_logs/`")
+    st.write("📁 Logs: `datalake/_logs/`")
+    st.write(f"🏆 Gold: `{GOLD_DIR}`")
+
+
+# ============================================================================
+# PAGE 0 : KPIs (Gold) — valeurs métier calculées
+# ============================================================================
+
+if page == "KPIs (Gold)":
+    st.header("🏆 KPIs calculés (couche Gold)")
+
+    if not Path(GOLD_DIR).exists():
+        st.warning(
+            "⚠️ Aucune donnée Gold trouvée. Lance d'abord le pipeline :\n\n"
+            "`python scripts/run_job.py --with-silver-gold`"
+        )
+    else:
+        # --- KPI 1 : Compagnie la plus active ---
+        st.subheader("1 · Compagnie avec le plus de vols en cours")
+        df = _read_kpi("kpi_airline_volumes")
+        if df is not None:
+            top = df.iloc[0]
+            c1, c2 = st.columns([1, 2])
+            c1.metric(
+                top.get("airline_name") or top.get("airline_icao", "?"),
+                int(top.get("active_flights_count", 0)),
+                "vols en cours",
+            )
+            c2.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI 2 : Top compagnie régionale par continent ---
+        st.subheader("2 · Top compagnie régionale par continent")
+        df = _read_kpi("kpi_continental_regional")
+        if df is not None:
+            c1, c2 = st.columns([2, 1])
+            c1.dataframe(df, use_container_width=True, hide_index=True)
+            if {"origin_continent", "regional_flights_count"}.issubset(df.columns):
+                c2.bar_chart(df.set_index("origin_continent")["regional_flights_count"])
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI 3 : Vol en cours le plus long ---
+        st.subheader("3 · Vol en cours au trajet le plus long")
+        df = _read_kpi("kpi_longest_flight")
+        if df is not None:
+            r = df.iloc[0]
+            route = f"{r.get('origin_iata','?')} → {r.get('destination_iata','?')}"
+            c1, c2 = st.columns([1, 2])
+            c1.metric(route, f"{float(r.get('distance_km', 0)):,.0f} km",
+                      r.get("airline_name") or r.get("callsign", ""))
+            c2.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI 4 : Distance moyenne par continent ---
+        st.subheader("4 · Distance de vol moyenne par continent")
+        df = _read_kpi("kpi_continental_avg_distance")
+        if df is not None:
+            c1, c2 = st.columns([2, 1])
+            c1.dataframe(df, use_container_width=True, hide_index=True)
+            if {"origin_continent", "avg_distance_km"}.issubset(df.columns):
+                c2.bar_chart(df.set_index("origin_continent")["avg_distance_km"])
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI 5 : Constructeur le plus actif ---
+        st.subheader("5 · Constructeur d'avions le plus actif")
+        df = _read_kpi("kpi_aircraft_manufacturers")
+        if df is not None:
+            top = df.iloc[0]
+            c1, c2 = st.columns([1, 2])
+            c1.metric(top.get("manufacturer", "?"), int(top.get("active_flights_count", 0)), "vols actifs")
+            c2.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI 6 : Top 3 modèles par pays de compagnie ---
+        st.subheader("6 · Top 3 des modèles d'avion par pays")
+        df = _read_kpi("kpi_airline_aircraft_top3")
+        if df is not None:
+            country_col = "origin_airport_country_code"
+            if country_col in df.columns:
+                countries = sorted(df[country_col].dropna().unique().tolist())
+                default_ix = countries.index("US") if "US" in countries else 0
+                sel = st.selectbox("Pays", countries, index=default_ix)
+                st.dataframe(
+                    df[df[country_col] == sel].sort_values("rank"),
+                    use_container_width=True, hide_index=True,
+                )
+            else:
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
+
+        # --- KPI bonus : Aéroport au plus grand écart départs/arrivées ---
+        st.subheader("Bonus · Aéroport au plus grand écart départs/arrivées")
+        df = _read_kpi("kpi_airport_imbalance")
+        if df is not None:
+            r = df.iloc[0]
+            c1, c2 = st.columns([1, 2])
+            c1.metric(r.get("airport_iata", "?"), int(r.get("imbalance", 0)),
+                      f"{int(r.get('departures', 0))} dép / {int(r.get('arrivals', 0))} arr")
+            c2.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("KPI non disponible — lancer le pipeline.")
 
 
 # ============================================================================
@@ -427,4 +554,3 @@ elif page == "KPI Summary":
         st.dataframe(kpi_df, use_container_width=True)
 
 st.markdown("---")
-st.caption("🤖 Generated with Claude Code")

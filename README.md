@@ -270,8 +270,10 @@ vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
   - Dimensions : unique airlines, airports, aircraft, countries
   - Gold KPIs : rows dans chaque table KPI
   - Errors et warnings
-- **`dashboard.py`** : Streamlit dashboard 3 pages
-  - Last Execution : tous les KPIs et dimensions
+- **`dashboard.py`** : Streamlit dashboard 4 pages
+  - **KPIs (Gold)** : valeurs métier des 7 KPIs calculés (lues dans `datalake/gold/`
+    via pandas/pyarrow, sans Spark) — ex. *United Airlines 223*, *SIN→JFK 15 340 km*
+  - Last Execution : métriques d'exécution (durée, qualité, dimensions)
   - History : table historique, trends, export CSV
   - Summary : statistiques globales
 - **`LOGGING.md`** : Documentation complète
@@ -279,7 +281,7 @@ vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`).
 **Usage :**
 ```bash
 streamlit run dashboard.py
-# http://localhost:8501
+# http://localhost:8501  (aucune variable Spark/Hadoop nécessaire)
 ```
 
 ### Étape 7 : Job Final + Scheduling ✅

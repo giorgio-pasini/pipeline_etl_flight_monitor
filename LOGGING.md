@@ -140,16 +140,42 @@ print(metrics.get_summary())
 
 ## 3. Dashboard Streamlit
 
+Le dashboard a **deux volets** :
+- **KPIs (Gold)** : les valeurs métier des 7 KPIs calculés (lues directement dans
+  les tables Gold via pandas/pyarrow — **sans Spark**).
+- **Métriques d'exécution** : durée, qualité, dimensions, etc. (lues dans les JSON
+  `JobMetrics` de `datalake/_logs/`).
+
 ### 3.1 Démarrage
 
 ```bash
-pip install streamlit pandas
+pip install -r requirements.txt   # streamlit, pandas, pyarrow inclus
 streamlit run dashboard.py
 ```
 
-Accès : http://localhost:8501
+Accès : http://localhost:8501 — aucune variable Spark/Hadoop nécessaire
+(la page KPIs lit le Parquet via pandas, pas Spark).
 
 ### 3.2 Pages du dashboard
+
+#### Page 0 : KPIs (Gold) — valeurs métier calculées
+
+Lit les 7 tables `datalake/gold/kpi_*` (helper `_read_kpi`, pandas) et affiche les
+**valeurs** des KPIs (pas seulement leur nombre de lignes) :
+
+| KPI | Affichage |
+|-----|-----------|
+| 1 · Compagnie la + active | metric (ex. *United Airlines — 223 vols*) + table |
+| 2 · Top compagnie régionale / continent | table + bar chart (6 continents) |
+| 3 · Vol en cours le + long | metric (ex. *SIN → JFK — 15 340 km*) + table |
+| 4 · Distance moyenne / continent | table + bar chart |
+| 5 · Constructeur le + actif | metric (ex. *Airbus — 2803*) + table |
+| 6 · Top 3 modèles / pays | table + sélecteur de pays |
+| bonus · Déséquilibre aéroport | metric (ex. *ICN +73* : 105 dép / 32 arr) + table |
+
+Si la couche Gold est absente → message invitant à lancer
+`python scripts/run_job.py --with-silver-gold`. Chaque KPI manquant affiche un
+`info` sans casser la page.
 
 #### Page 1 : Last Execution
 
@@ -281,11 +307,11 @@ def run_batch(spark, config, zones=None):
 - `JobMetrics` class pour enregistrer métriques simples
 - `load_from_json()`, `load_all_metrics()` pour charger historique
 
-✅ `dashboard.py` (320 lignes)
+✅ `dashboard.py`
 - Dashboard Streamlit multi-pages
-- 3 pages : Last Execution, History, Summary
-- Charts et tables interactives
-- Export CSV
+- 4 pages : **KPIs (Gold)**, Last Execution, History, Summary
+- Page KPIs : valeurs métier des 7 KPIs (pandas/pyarrow, sans Spark)
+- Charts et tables interactives, export CSV
 
 ---
 

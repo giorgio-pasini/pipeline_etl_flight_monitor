@@ -1463,7 +1463,47 @@ Silver (fact + 4 dims) → **7/7 KPIs Gold peuplés**. Source aéroports configu
 
 ---
 
-## Résumé global (Étapes 1-11 complétées)
+# Étape 12 : Dashboard — page « KPIs (Gold) »
+
+## 12.1 Contexte
+
+Le `dashboard.py` (Étape 6) n'affichait que les **métriques d'exécution** du job
+(`JobMetrics` JSON : durée, qualité, nb de lignes par KPI), pas les **valeurs métier**
+des KPIs. On ajoute une page dédiée pour visualiser les 7 KPIs calculés.
+
+## 12.2 Implémentation
+
+`dashboard.py` :
+- Helper `_read_kpi(name)` : lit `datalake/gold/kpi_*` via **`pandas.read_parquet`**
+  (pyarrow) — **sans Spark ni HADOOP/winutils** —, gère l'absence/vide gracieusement,
+  et retire les colonnes techniques (`computed_at`, `tech_year`, `tech_month`).
+- Nouvelle page **« KPIs (Gold) »** (1ʳᵉ du `st.radio`) affichant les 7 KPIs avec
+  libellés métier : `metric` pour les KPIs « top 1 » (compagnie, vol le + long,
+  constructeur, déséquilibre) et `bar chart` pour les KPIs par continent (régional,
+  distance moyenne) ; `selectbox` pays pour le top-3 modèles.
+- Garde-fous : Gold absent → invite à lancer le pipeline ; KPI manquant → `st.info`.
+
+`requirements.txt` : `pyarrow` épinglé (lecture Parquet pandas, déjà tiré par pyspark).
+
+## 12.3 Lancement
+
+```bash
+streamlit run dashboard.py    # -> http://localhost:8501
+```
+Aucune variable Spark/Hadoop nécessaire (page KPIs en pandas/pyarrow).
+
+## 12.4 Vérification
+
+- Démarrage Streamlit OK (HTTP 200) ; les 7 tables Gold lues sans erreur.
+- Valeurs affichées cohérentes : *United Airlines 223*, *SIN→JFK 15 340 km*,
+  *Airbus 2803*, *ICN +73*, top régional EU *Ryanair*, etc.
+
+**Status :** ✅ Dashboard à 4 pages : **KPIs (Gold)** (valeurs métier) + 3 pages de
+métriques d'exécution.
+
+---
+
+## Résumé global (Étapes 1-12 complétées)
 
 | Étape | Titre | Fichiers | Status |
 |-------|-------|----------|--------|
@@ -1479,6 +1519,7 @@ Silver (fact + 4 dims) → **7/7 KPIs Gold peuplés**. Source aéroports configu
 | 9 | Fault-tolerance avancée (retries, alerting) | `src/alerting.py`, retries dans `src/flight_extraction.py`, `tests/unit/test_fault_tolerance.py` | ✅ |
 | 10 | Exécution réelle, enrichissement & dimensions | infra Windows (winutils/extraLibraryPath/UTF-8/coercion), `enrich=True` + 9 zones, 4 `build_dim_*`, résilience enrich, stratégies anti-quota | ✅ |
 | 11 | Anti-quota (login, backoff 429, dims bulk + cache) | `src/dimension_loader.py`, login/RetryPolicy dans `src/flight_extraction.py`, `enrich_with_dimensions`, `COUNTRY_NAME_TO_CODE` | ✅ |
+| 12 | Dashboard — page KPIs (Gold) | `dashboard.py` (`_read_kpi` + page « KPIs (Gold) »), `requirements.txt` (pyarrow), `LOGGING.md` | ✅ |
 
 **Artefacts clés livrés :**
 - ✅ Modèle de données complet (star schema avec fact + 4 dims + 7 KPIs)
