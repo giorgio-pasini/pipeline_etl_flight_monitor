@@ -83,7 +83,8 @@ API FlightRadar24 (temps réel)
 ## 2. Modèle de données
 
 Star schema : **1 table de faits** (`fact_flights`) + **4 dimensions** + **7 tables KPI** (Gold).
-Schémas Spark définis dans `src/schemas.py`.
+Le schéma Bronze (`flights_raw`) est figé dans `src/schemas.py` (seul schéma **appliqué**) ; les
+tables Silver/Gold sont construites dynamiquement (`dimension_loader`, `transformations`).
 
 ### Bronze — `flights_raw`
 Données brutes de l'API + métadonnées d'extraction. Champs clés : `extraction_timestamp`,
@@ -287,10 +288,9 @@ python scripts/purge_old_partitions.py --dry-run --verbose
 ```
 
 ### Scheduling (toutes les 2 h)
-- **Airflow (recommandé)** : cf. ci-dessous.
-- **Linux/macOS** : `scripts/schedule_job.sh install|list|remove|test` (cron, 12×/jour).
-- **Windows** : `scripts/schedule_job.ps1 -Action install|list|remove|test` (Task Scheduler, en
-  Administrateur).
+- **Airflow (recommandé)** : cf. ci-dessous — c'est le mécanisme d'ordonnancement du projet.
+- Alternative sans Airflow : un cron (`0 */2 * * *`) ou une tâche planifiée Windows appelant
+  `python scripts/run_job.py --with-silver-gold`.
 
 ### Orchestration Airflow (`airflow/`, profil Docker)
 **Pattern production** : Airflow **orchestre**, il n'exécute pas Spark en interne. Le DAG
@@ -448,7 +448,7 @@ Le projet a été construit itérativement (détail des décisions ci-dessous r�
 - **Code** : modules `src/` (schemas, data_quality, flight_extraction, batch_job,
   transformations, silver_gold_loader, dimension_loader, reference_data, job_metrics, alerting,
   datalake_utils), `config/` (datalake_config), `scripts/`
-  (run_job, init_datalake, purge_old_partitions, schedule_job.sh/ps1), `dashboard.py`.
+  (run_job, init_datalake, purge_old_partitions), `dashboard.py`.
 - **Conteneurisation & orchestration** : `Dockerfile` + `docker-compose.yml` (etl + dashboard +
   profil airflow), `.dockerignore`, `.env.example` ; `airflow/` (Dockerfile + `dags/flight_etl_dag.py`).
 - **Données de référence** : `data/airports.dat` (OpenFlights, ~7700 aéroports) — **auto-géré**

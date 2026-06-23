@@ -3,13 +3,7 @@
 import pytest
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType, TimestampType
 
-from src.schemas import (
-    schema_flights_raw,
-    schema_dim_airlines,
-    schema_dim_airports,
-    schema_fact_flights,
-    SCHEMAS,
-)
+from src.schemas import schema_flights_raw
 
 
 class TestFlightsRawSchema:
@@ -50,40 +44,3 @@ class TestFlightsRawSchema:
         # Vérifier que le DataFrame a les bonnes colonnes
         assert df is not None
         assert len(df.columns) == len(schema_flights_raw.fields)
-
-
-class TestDimensionSchemas:
-    """Tests pour les schémas de dimensions."""
-
-    def test_airlines_schema_exists(self):
-        """Le schéma dim_airlines doit exister."""
-        assert schema_dim_airlines is not None
-        assert 'airline_icao' in [f.name for f in schema_dim_airlines.fields]
-
-    def test_airports_schema_exists(self):
-        """Le schéma dim_airports doit exister."""
-        assert schema_dim_airports is not None
-        assert 'airport_iata' in [f.name for f in schema_dim_airports.fields]
-
-    def test_fact_flights_schema_exists(self):
-        """Le schéma fact_flights doit exister."""
-        assert schema_fact_flights is not None
-        assert 'flight_id' in [f.name for f in schema_fact_flights.fields]
-
-
-class TestSchemasRegistry:
-    """Tests pour le registry de schémas."""
-
-    def test_schemas_dict_populated(self):
-        """Le dictionnaire SCHEMAS doit être rempli."""
-        assert len(SCHEMAS) > 0
-
-    def test_schemas_dict_has_bronze_tables(self):
-        """Le dict doit contenir les tables Bronze."""
-        assert 'flights_raw' in SCHEMAS
-
-    def test_schemas_dict_has_silver_tables(self):
-        """Le dict doit contenir les tables Silver."""
-        expected_silver = ['fact_flights', 'dim_airlines', 'dim_airports']
-        for table in expected_silver:
-            assert table in SCHEMAS, f"Table Silver manquante: {table}"

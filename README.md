@@ -68,8 +68,7 @@ Quatre rôles séparés ; tout communique par un **volume partagé** (`flight_da
 │   ├── alerting.py           #   alertes (fichier/log/webhook)
 │   └── datalake_utils.py     #   partitions, rétention/cleanup
 ├── config/                   # datalake_config.py (config centralisée)
-├── scripts/                  # run_job.py, init_datalake.py, purge_old_partitions.py,
-│                             #   schedule_job.sh/ps1
+├── scripts/                  # run_job.py, init_datalake.py, purge_old_partitions.py
 ├── airflow/                  # orchestration : Dockerfile + dags/flight_etl_dag.py (toutes les 2 h)
 ├── Dockerfile                # image flight-etl (JDK 17 + Python 3.11 + deps + code)
 ├── docker-compose.yml        # services etl + dashboard (+ profil airflow : postgres + airflow)
