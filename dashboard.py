@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import time
 import json
 
 from src.job_metrics import JobMetrics
@@ -16,8 +17,66 @@ from src.job_metrics import JobMetrics
 try:
     from config.datalake_config import DatalakeConfig
     GOLD_DIR = DatalakeConfig.GOLD_PATH
+    LOG_DIR = DatalakeConfig.LOG_PATH
 except Exception:
     GOLD_DIR = "datalake/gold"
+    LOG_DIR = "datalake/_logs"
+
+
+# Phases du job (libellé, marqueur dans le log) — cf. src/batch_job.run_batch
+_PHASES = [
+    ("Extraction API", "Phase 1 :"),
+    ("Validation & qualité", "Phase 2 :"),
+    ("Profil qualité", "Phase 3 :"),
+    ("Partitionnement", "Phase 4 :"),
+    ("Écriture Bronze", "Phase 5 :"),
+    ("Silver + Gold (KPIs)", "Phase 6 :"),
+]
+
+
+def _latest_batch_log():
+    """Chemin du log de batch le plus récent (ou None)."""
+    logs = sorted(Path(LOG_DIR).glob("batch_job_*.log"), key=lambda p: p.stat().st_mtime)
+    return logs[-1] if logs else None
+
+
+def _analyze_run(path: Path) -> dict:
+    """Analyser un log de batch : état (running/done/stalled), phase, durée, issue."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = [l for l in text.splitlines() if l.strip()]
+
+    reached = -1
+    for i, (_label, marker) in enumerate(_PHASES):
+        if marker in text:
+            reached = i
+
+    finished = ("✓ Métriques sauvegardées" in text
+                or "✅ Batch complété avec succès" in text
+                or "❌ Erreur lors du batch" in text)
+    success = "✅ Batch complété avec succès" in text
+    empty = "Aucun vol collecté" in text
+
+    # Horodatage de début (1re ligne) et de dernière activité (mtime)
+    started = None
+    try:
+        started = datetime.strptime(lines[0][:23], "%Y-%m-%d %H:%M:%S,%f")
+    except Exception:
+        pass
+    mtime = path.stat().st_mtime
+    age = time.time() - mtime
+
+    if finished:
+        state = "done"
+    elif age < 180:           # mise à jour < 3 min -> considéré actif
+        state = "running"
+    else:
+        state = "stalled"
+
+    return {
+        "state": state, "reached": reached, "finished": finished,
+        "success": success, "empty": empty, "started": started,
+        "age": age, "mtime": mtime, "lines": lines, "name": path.name,
+    }
 
 
 def _read_kpi(name: str):
@@ -53,13 +112,105 @@ with st.sidebar:
     st.header("📊 Navigation")
     page = st.radio(
         "Select view",
-        ["KPIs (Gold)", "Last Execution", "Execution History"],
+        ["Statut d'exécution", "KPIs (Gold)", "Last Execution", "Execution History"],
         label_visibility="collapsed"
     )
 
     st.markdown("---")
     st.write("📁 Logs: `datalake/_logs/`")
     st.write(f"🏆 Gold: `{GOLD_DIR}`")
+
+
+# ============================================================================
+# PAGE : Statut d'exécution — run en cours / progression / résultat
+# ============================================================================
+
+if page == "Statut d'exécution":
+    st.header("⏱️ Statut d'exécution")
+
+    log_path = _latest_batch_log()
+    if log_path is None:
+        st.warning(
+            "⚠️ Aucun log de batch trouvé. Lance d'abord le pipeline :\n\n"
+            "`python scripts/run_job.py --with-silver-gold`"
+        )
+    else:
+        run = _analyze_run(log_path)
+        total_steps = len(_PHASES)
+        done_steps = run["reached"] + 1  # phases atteintes
+
+        # --- Bandeau d'état ---
+        if run["state"] == "running":
+            st.info(f"🟢 **Exécution en cours** — log `{run['name']}`")
+            phase_label = _PHASES[run["reached"]][0] if run["reached"] >= 0 else "Initialisation"
+            st.progress(min(done_steps / (total_steps + 1), 0.99),
+                        text=f"Phase {max(done_steps,1)}/{total_steps} — {phase_label}")
+        elif run["state"] == "done":
+            if run["success"]:
+                st.success(f"✅ **Dernier run réussi** — log `{run['name']}`")
+            elif run["empty"]:
+                st.warning(f"⚠️ **Dernier run : extraction vide** (aucun vol collecté) — `{run['name']}`")
+            else:
+                st.error(f"❌ **Dernier run en échec** — log `{run['name']}`")
+            st.progress(1.0, text="Terminé")
+        else:  # stalled
+            st.warning(
+                f"🟠 **Run possiblement interrompu** — aucune mise à jour depuis "
+                f"{run['age']/60:.0f} min (log `{run['name']}`). Process arrêté/crashé ?"
+            )
+            phase_label = _PHASES[run["reached"]][0] if run["reached"] >= 0 else "?"
+            st.progress(min(done_steps / (total_steps + 1), 0.99),
+                        text=f"Bloqué après : {phase_label}")
+
+        # --- Métriques de timing ---
+        c1, c2, c3 = st.columns(3)
+        if run["started"]:
+            c1.metric("Démarré à", run["started"].strftime("%H:%M:%S"))
+            ref = time.time() if run["state"] == "running" else run["mtime"]
+            c2.metric("Durée", f"{(ref - run['started'].timestamp()):.0f} s")
+        c3.metric("Phases atteintes", f"{max(done_steps,0)}/{total_steps}")
+
+        # --- Détail des phases ---
+        st.subheader("Progression par phase")
+        for i, (label, _m) in enumerate(_PHASES):
+            if i < run["reached"] or (run["state"] == "done" and run["success"]):
+                icon = "✅"
+            elif i == run["reached"]:
+                icon = "🟢" if run["state"] == "running" else ("✅" if run["success"] else "⏹️")
+            else:
+                icon = "⚪"
+            st.write(f"{icon} Phase {i+1} — {label}")
+
+        # --- Résultat (si terminé) : métriques du dernier run ---
+        if run["state"] == "done":
+            st.subheader("Résultat")
+            all_metrics = JobMetrics.load_all_metrics()
+            if all_metrics:
+                m = all_metrics[0]
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Statut", m.get("status", "?"))
+                d2.metric("Erreurs", m.get("num_errors", 0))
+                d3.metric("Durée totale", f"{m.get('total_duration_seconds', 0):.0f} s")
+                errs = m.get("errors") or []
+                if errs:
+                    with st.expander(f"❌ Détail des {len(errs)} erreur(s)"):
+                        for e in errs:
+                            st.code(f"[{e.get('phase','?')}] {e.get('message','')[:1500]}")
+
+        # --- Tail du log ---
+        st.subheader("Journal (50 dernières lignes)")
+        st.code("\n".join(run["lines"][-50:]) or "(vide)", language="log")
+
+        # --- Rafraîchissement ---
+        st.markdown("---")
+        cols = st.columns([1, 3])
+        if cols[0].button("🔄 Rafraîchir"):
+            st.rerun()
+        if run["state"] == "running":
+            auto = cols[1].checkbox("Auto-refresh (5 s)", value=True)
+            if auto:
+                time.sleep(5)
+                st.rerun()
 
 
 # ============================================================================

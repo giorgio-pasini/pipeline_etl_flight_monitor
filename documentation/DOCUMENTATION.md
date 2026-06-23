@@ -232,8 +232,6 @@ L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x)
 ```powershell
 $env:HADOOP_HOME="C:\Users\<user>\hadoop"
 $env:PATH="$env:HADOOP_HOME\bin;$env:PATH"
-$env:PYSPARK_PYTHON="<chemin\python.exe>"
-$env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
 # (optionnel) login FR24 pour un quota plus élevé :
 $env:FR24_EMAIL="<email>"; $env:FR24_PASSWORD="<mot_de_passe_FR24>"
 python scripts\run_job.py --with-silver-gold
@@ -267,7 +265,7 @@ Chemins datalake, rétention, paramètres Spark, API (timeout, `API_MAX_WORKERS_
 | Symptôme | Cause / Solution |
 |---|---|
 | `UnsatisfiedLinkError: NativeIO$Windows.access0` | `hadoop.dll` non chargé → définir `HADOOP_HOME` + PATH (cf. ci-dessus) |
-| « Python worker failed to connect back » | Alias Python Windows → définir `PYSPARK_PYTHON` sur l'exe Python |
+| « Python worker failed to connect back » | Alias Python Windows → **corrigé automatiquement** : `create_spark_session` force `PYSPARK_PYTHON=sys.executable`. (Surchargeable manuellement si besoin.) |
 | `CANNOT_ACCEPT_OBJECT_IN_TYPE DoubleType … int` | géré : coercion de types dans `flights_to_dicts` |
 | `HTTP Error 429` | quota API → login FR24, `DIM_AIRPORTS_SOURCE=static`, attendre le reset |
 | KPIs continentaux vides | dimensions aéroports non chargées → vérifier `data/airports.dat` / source |
@@ -285,13 +283,16 @@ durée totale, statut. Sauvegarde JSON dans `datalake/_logs/` (lu par le dashboa
 ```bash
 streamlit run dashboard.py    # http://localhost:8501  (pandas/pyarrow, sans Spark)
 ```
+- **Statut d'exécution** — détecte un run **en cours / terminé / interrompu** en analysant le
+  dernier `datalake/_logs/batch_job_*.log` (helpers `_latest_batch_log`/`_analyze_run`) :
+  barre de progression par phase (1→6), durée, checklist des phases, **résultat** (statut,
+  erreurs, durée) et 50 dernières lignes du journal. **Auto-refresh 5 s** tant que le run tourne.
 - **KPIs (Gold)** — **valeurs métier** des 7 KPIs lues dans `datalake/gold/kpi_*` (helper
   `_read_kpi`, pandas) : compagnie la plus active, top régional/continent (+ bar chart), vol le
   plus long, distance moyenne/continent (+ bar chart), constructeur, top-3 modèles/pays
   (sélecteur), déséquilibre aéroport. Garde-fous si Gold absent.
 - **Last Execution** — métriques d'exécution du dernier batch.
 - **Execution History** — historique, trends, export CSV.
-- **KPI Summary** — statistiques globales.
 
 ### Alerting (`src/alerting.py`)
 Règles sur les métriques finalisées : erreurs → **CRITICAL** ; qualité < seuil ; durée > SLA ;

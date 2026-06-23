@@ -36,7 +36,7 @@ API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dim
 ├── tests/                    # unit / integration / e2e (~85 tests)
 ├── data/airports.dat         # référentiel aéroports (OpenFlights)
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
-├── dashboard.py              # dashboard Streamlit (3 pages)
+├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
 ├── documentation/
 │   └── DOCUMENTATION.md       # 📖 documentation technique complète
 ├── plan_de_implementation.md # cahier des charges original
@@ -53,8 +53,8 @@ streamlit run dashboard.py                        # KPIs : http://localhost:8501
 pytest -m "not slow and not e2e" -q               # tests
 ```
 
-> **Windows** — l'écriture Parquet exige `winutils.exe`/`hadoop.dll` et quelques variables
-> d'environnement (`HADOOP_HOME`, `PYSPARK_PYTHON`). Voir
+> **Windows** — l'écriture Parquet exige `winutils.exe`/`hadoop.dll` + `HADOOP_HOME`
+> (`PYSPARK_PYTHON` est réglé automatiquement). Voir
 > [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
 
 ## Documentation

@@ -84,6 +84,14 @@ def setup_logging(config: DatalakeConfig):
 def create_spark_session(config: DatalakeConfig) -> SparkSession:
     """Créer et configurer la session Spark."""
 
+    # Forcer l'interpréteur Python des workers Spark = celui qui lance le job.
+    # Sans cela, sous Windows, le `python` par défaut peut être un stub
+    # (alias Microsoft Store) qui ne se connecte jamais → erreur Spark
+    # « Python worker failed to connect back » (SocketTimeoutException).
+    # `setdefault` : on respecte une valeur déjà posée par l'utilisateur.
+    os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+    os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+
     builder = SparkSession.builder \
         .appName(config.SPARK_APP_NAME) \
         .master(config.SPARK_MASTER) \
