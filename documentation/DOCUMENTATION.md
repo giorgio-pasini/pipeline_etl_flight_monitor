@@ -25,8 +25,8 @@
 Pipeline **ETL batch** qui collecte le trafic aérien mondial via l'API **FlightRadar24**,
 le nettoie/enrichit dans une **architecture Medallion** (Bronze → Silver → Gold) avec
 **Apache Spark Core (batch)**, calcule **7 KPIs** et les expose dans un **dashboard Streamlit**.
-Le job est conçu pour être **orchestré toutes les 2 heures** par un scheduler externe (cron /
-Task Scheduler) — ce n'est pas du streaming continu.
+Le job est conçu pour être **orchestré toutes les 2 heures** (Apache **Airflow** — cf. §6 ; ou
+cron / Task Scheduler) — ce n'est pas du streaming continu.
 
 ### Les 7 KPIs
 1. **Compagnie** avec le plus de vols en cours.
@@ -46,7 +46,7 @@ Task Scheduler) — ce n'est pas du streaming continu.
 
 ```
 API FlightRadar24 (temps réel)
-        │  job toutes les 2 h (scheduler externe)
+        │  job toutes les 2 h (orchestré par Airflow — cf. §6)
         ▼
 ┌─────────────────────────────┐
 │ BRONZE — données brutes      │  flights_raw (Parquet)
@@ -76,7 +76,7 @@ API FlightRadar24 (temps réel)
 | **Medallion 3 couches** | Traçabilité, découplage, résilience (Bronze rejouable) |
 | **Parquet + partition temporelle** | Columnar compressé, schéma fort, partition pruning, rétention facile |
 | **Star schema** | Réutilisabilité, audit, séparation fait/dimensions |
-| **Orchestration externe** | cron/Task Scheduler ; pas de boucle interne |
+| **Orchestration Airflow** | DAG toutes les 2 h via DockerOperator ; pas de boucle interne (cron/Task Scheduler en repli) |
 
 ---
 
@@ -237,7 +237,8 @@ Plutôt que ~1 appel détaillé **par vol** (des milliers d'appels → 429), on 
 ### Exécution avec Docker (recommandé, zéro prérequis)
 Une **image unique** (`Dockerfile`) embarque JDK 17 + Python 3.11 + dépendances + code. En
 conteneur Linux, **winutils/HADOOP_HOME ne s'appliquent pas** (prérequis Windows uniquement). Le
-`docker-compose.yml` définit deux services partageant le volume nommé `datalake` :
+`docker-compose.yml` définit deux services principaux partageant le volume `flight_datalake` (le
+**profil `airflow`** ajoute `postgres` + `airflow`, cf. plus bas) :
 
 | Service | Rôle |
 |---|---|
@@ -255,7 +256,7 @@ docker compose down -v            # arrêter + supprimer les données (run vierg
   (`FR24_EMAIL/PASSWORD`) ou ajuster `SPARK_DRIVER_MEMORY` (allouer ≥ 4 Go à Docker Desktop).
 - Le jeu OpenFlights est **téléchargé une fois** sous `datalake/_reference/airports.dat` (volume),
   puis rafraîchi à 14 j (cf. §5) — rien n'est figé dans l'image.
-- L'orchestration **Airflow** (à venir) réutilisera cette même image.
+- L'orchestration **Airflow réutilise cette même image** (sous-section dédiée plus bas).
 
 ### Prérequis Windows (Spark/Parquet) — exécution native
 L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x). **Il suffit de
@@ -286,9 +287,33 @@ python scripts/purge_old_partitions.py --dry-run --verbose
 ```
 
 ### Scheduling (toutes les 2 h)
+- **Airflow (recommandé)** : cf. ci-dessous.
 - **Linux/macOS** : `scripts/schedule_job.sh install|list|remove|test` (cron, 12×/jour).
 - **Windows** : `scripts/schedule_job.ps1 -Action install|list|remove|test` (Task Scheduler, en
   Administrateur).
+
+### Orchestration Airflow (`airflow/`, profil Docker)
+**Pattern production** : Airflow **orchestre**, il n'exécute pas Spark en interne. Le DAG
+`flight_etl_pipeline` déclenche le batch dans un conteneur `flight-etl` **isolé** via
+**`DockerOperator`** — équivalent local du `KubernetesPodOperator` visé en prod (l'image Airflow
+reste légère : ni Java ni pyspark). Déploiement lean mais fiable : `airflow standalone` +
+**Postgres** (LocalExecutor) — 2 conteneurs (SQLite seul verrouille sous la charge scheduler).
+
+```bash
+docker compose build
+docker compose --profile airflow up -d        # Airflow :8080 + dashboard :8501
+docker compose exec airflow airflow dags trigger flight_etl_pipeline   # run à la demande
+```
+
+- **DAG** : `schedule="0 */2 * * *"`, `catchup=False`, `max_active_runs=1`, `retries=1`. Deux
+  tâches : **`run_etl`** (DockerOperator → `run_job.py --with-silver-gold`, monte le volume
+  `flight_datalake`) puis **`check_outcome`** (lit le dernier `*_metrics.json`, échoue si
+  `status != success` ou erreurs).
+- **Volume partagé `flight_datalake`** entre `etl`, `dashboard`, le conteneur job et `airflow` →
+  le **dashboard (:8501)** visualise chaque run planifié (« Statut d'exécution ») et les KPIs.
+- Accès au socket Docker : service `airflow` en `user: "0:0"` (orchestrateur local ; en prod K8s
+  ce point disparaît). Détails dans `airflow/Dockerfile` et `airflow/dags/flight_etl_dag.py`.
+- **Cible prod** : remplacer `DockerOperator` par `KubernetesPodOperator` (même structure de DAG).
 
 ### Configuration (`config/datalake_config.py`, surchargeable par env)
 Chemins datalake, rétention, paramètres Spark, API (timeout, `API_MAX_WORKERS_PARALLEL`,
@@ -339,7 +364,7 @@ optionnel vers `ALERT_WEBHOOK_URL` (Slack/Teams, sans dépendance).
 
 ## 8. Tests
 
-Suite **pytest** (~85 tests) : `unit/`, `integration/`, `e2e/`. Markers : `slow`, `e2e`
+Suite **pytest** (~95 tests) : `unit/`, `integration/`, `e2e/`. Markers : `slow`, `e2e`
 (désélectionnés par défaut). Fixtures dans `tests/conftest.py` (session Spark, `temp_datalake`
 qui redirige tous les chemins dérivés, `make_mock_flight`, `parquet_write_supported`).
 
@@ -359,7 +384,7 @@ pytest tests/unit -q                     # unitaires seuls
 ### Note Windows
 Les tests qui **écrivent du Parquet** se *skip* proprement sans `HADOOP_HOME`/winutils ; ils
 s'exécutent intégralement sous PowerShell avec l'environnement Spark configuré (ou en CI/Linux).
-Sous bash sans winutils : ~83 passés / ~6 skipped.
+Sous bash sans winutils : ~89 passés / ~6 skipped.
 
 ---
 
@@ -379,7 +404,7 @@ n'**interrompt** pas le batch.
 
 ## 10. Historique de développement
 
-Le projet a été construit en 13 étapes (détail des décisions ci-dessous résumé) :
+Le projet a été construit itérativement (détail des décisions ci-dessous résumé) :
 
 | # | Étape | Apport principal |
 |---|---|---|
@@ -398,14 +423,20 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
 | 12 | Dashboard KPIs (Gold) | page valeurs métier (pandas/pyarrow) |
 | 13 | Partitionnement → tech_day | Silver & Gold jusqu'au jour |
 | 14 | Allègement du projet | retrait tooling non câblé, code mort, schémas KPI périmés, `requirements` slim |
+| 15 | Portabilité & auto-config | `PYSPARK_PYTHON`/`HADOOP_HOME` auto-détectés ; onglet dashboard « Statut d'exécution » (suivi des runs en direct) |
+| 16 | Jeu de référence auto-géré | `ensure_airports_dataset` : téléchargé si absent, rafraîchi à 14 j (mtime), fallback hors-ligne |
+| 17 | Conteneurisation Docker | image unique `flight-etl` + `docker compose` (etl + dashboard), volume `flight_datalake`, « first run » sans Java/winutils |
+| 18 | Correctif KPI distance | exclusion des vols circulaires (origine = destination, 0 km) des KPI 3 & 4 |
+| 19 | Orchestration Airflow | DAG toutes les 2 h via **DockerOperator** (Postgres + LocalExecutor) ; tâche `check_outcome` |
 
 ### Corrections notables (hardening)
 - **Job unifié** : suppression d'un duplicata `streaming_job.py` ; toute la logique dans
   `batch_job.run_batch` ; signatures alignées.
 - **Partitionnement Bronze** : valeurs correctes via `get_partition_values` (auparavant cast
   epoch/string corrompu).
-- **Infra Windows** : winutils/`HADOOP_HOME`, `spark.driver.extraLibraryPath`, coercion
-  int→double, logging UTF-8, `.cache()` (counts non recalculés).
+- **Infra Windows** : winutils/`HADOOP_HOME` + `PYSPARK_PYTHON` désormais **auto-détectés** dans
+  `create_spark_session` (plus de réglage manuel), `spark.driver.extraLibraryPath`, coercion
+  int→double, logging UTF-8, `.cache()` (counts non recalculés). *(Docker évite ces prérequis.)*
 - **API** : `get_airports` peu fiable/lent et 429 en anonyme → **source statique OpenFlights**
   par défaut (flag `DIM_AIRPORTS_SOURCE`).
 - **Inférence de partition** désactivée pour des `tech_*` cohérents (string) entre couches.
@@ -418,8 +449,11 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
   transformations, silver_gold_loader, dimension_loader, reference_data, job_metrics, alerting,
   datalake_utils), `config/` (datalake_config), `scripts/`
   (run_job, init_datalake, purge_old_partitions, schedule_job.sh/ps1), `dashboard.py`.
-- **Données de référence** : `data/airports.dat` (OpenFlights, ~7700 aéroports).
-- **Tests** : ~85 (unit + integration + e2e).
+- **Conteneurisation & orchestration** : `Dockerfile` + `docker-compose.yml` (etl + dashboard +
+  profil airflow), `.dockerignore`, `.env.example` ; `airflow/` (Dockerfile + `dags/flight_etl_dag.py`).
+- **Données de référence** : `data/airports.dat` (OpenFlights, ~7700 aéroports) — **auto-géré**
+  (`ensure_airports_dataset` : téléchargement/refresh à 14 j, fallback hors-ligne).
+- **Tests** : ~95 (unit + integration + e2e).
 - **Pipeline vérifié de bout en bout** (run anonyme) : 9 zones → Bronze ≈ 7600 vols → Silver
   (fact + 4 dims) → **7/7 KPIs Gold peuplés**. Exemples : vol le plus long **SIN→JFK ≈ 15 340 km**,
   top régional EU **Ryanair**, constructeur **Airbus**, déséquilibre **ICN (+73)**.

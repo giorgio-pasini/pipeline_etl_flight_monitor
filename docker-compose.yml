@@ -42,5 +42,50 @@ services:
       retries: 5
       start_period: 20s
 
+  # Orchestration (profil "airflow") — n'affecte pas `docker compose up`.
+  # Backend Postgres (pas de verrou SQLite) + LocalExecutor : déploiement minimal mais fiable.
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["airflow"]
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Airflow standalone (webserver + scheduler) ; il DÉCLENCHE le job dans un conteneur
+  # `flight-etl` séparé (DockerOperator) -> accès au socket Docker requis (user 0:0).
+  airflow:
+    build: ./airflow
+    image: flight-airflow:latest
+    profiles: ["airflow"]
+    user: "0:0"
+    command: ["airflow", "standalone"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      FR24_EMAIL: ${FR24_EMAIL:-}
+      FR24_PASSWORD: ${FR24_PASSWORD:-}
+      SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./airflow/dags:/opt/airflow/dags
+      - datalake:/opt/airflow/datalake   # volume "flight_datalake" — lecture des métriques (check_outcome)
+
 volumes:
   datalake:
+    name: flight_datalake   # nom stable : référencé par le DockerOperator et le service airflow
+  pgdata:                   # métadonnées Airflow (Postgres)

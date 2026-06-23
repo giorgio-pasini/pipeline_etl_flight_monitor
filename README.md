@@ -2,8 +2,8 @@
 
 Pipeline **ETL batch** (Apache Spark) qui collecte le trafic aérien mondial via l'API
 **FlightRadar24**, l'enrichit dans une architecture **Medallion** (Bronze → Silver → Gold),
-calcule **7 KPIs** et les expose dans un **dashboard Streamlit**. Conçu pour être orchestré
-**toutes les 2 heures** par un scheduler externe.
+calcule **7 KPIs** et les expose dans un **dashboard Streamlit**. Orchestré **toutes les 2 heures**
+par **Apache Airflow** (conteneurisé via Docker).
 
 **Les 7 KPIs** : (1) compagnie la plus active · (2) top compagnie régionale par continent ·
 (3) vol en cours le plus long · (4) distance moyenne par continent · (5) constructeur le plus
@@ -15,13 +15,50 @@ API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dim
                        partition year/month/day[/hour]
 ```
 
+## Architecture
+
+Quatre rôles séparés ; tout communique par un **volume partagé** (`flight_datalake`) :
+
+```
+   ┌──────────────┐  déclenche toutes les 2 h (DockerOperator)
+   │   Airflow    │ ─────────────────────────────┐
+   │   :8080      │  ordonnancement & supervision │
+   └──────────────┘                               ▼
+                                        ┌────────────────────┐
+   API FlightRadar24 ──────────────────►│  flight-etl (job)  │  run_batch (Spark)
+                                        │  conteneur isolé   │
+                                        └─────────┬──────────┘
+                                                  │ écrit Parquet + métriques JSON
+                                                  ▼
+                       volume   ┌──────────────────────────────────────┐
+                     flight_    │  BRONZE → SILVER → GOLD  + _logs/      │
+                     datalake   │                          _reference/  │
+                                └───────────────────┬───────────────────┘
+                                                    │ lit (pandas/pyarrow)
+                                                    ▼
+                                          ┌────────────────────┐
+                                          │  Dashboard         │  KPIs + statut des runs
+                                          │  Streamlit :8501   │
+                                          └────────────────────┘
+```
+
+| Rôle | Composant | Détail |
+|---|---|---|
+| **Ordonnancement** | Airflow (DAG `flight_etl_pipeline`) | toutes les 2 h, retries, supervision ; déclenche le job via DockerOperator |
+| **Exécution** | conteneur `flight-etl` | `run_batch` : extraction → validation → Bronze → Silver → Gold (Spark local) |
+| **Stockage** | volume `flight_datalake` | Medallion Parquet partitionné + `_logs/` (métriques) + `_reference/` (jeu aéroports) |
+| **Visualisation** | dashboard Streamlit | KPIs (Gold) + suivi des runs en direct, lit le même volume |
+
+> En production, le `DockerOperator` se remplace par un `KubernetesPodOperator` (même DAG) — voir
+> [DOCUMENTATION.md §6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
+
 ## Structure du projet
 
 ```
 ├── src/                      # cœur du pipeline
 │   ├── batch_job.py          #   point d'entrée unique (run_batch : 7 phases)
 │   ├── flight_extraction.py  #   collecte API (zones, dédup, login/retry)
-│   ├── dimension_loader.py   #   dimensions de référence (bulk/static + cache)
+│   ├── dimension_loader.py   #   dimensions + jeu aéroports auto-géré (download/refresh)
 │   ├── transformations.py    #   nettoyage, enrichissement, 7 KPIs
 │   ├── silver_gold_loader.py #   orchestration Bronze → Silver → Gold
 │   ├── data_quality.py       #   8 flags qualité + is_valid
@@ -33,8 +70,12 @@ API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dim
 ├── config/                   # datalake_config.py (config centralisée)
 ├── scripts/                  # run_job.py, init_datalake.py, purge_old_partitions.py,
 │                             #   schedule_job.sh/ps1
-├── tests/                    # unit / integration / e2e (~85 tests)
-├── data/airports.dat         # référentiel aéroports (OpenFlights)
+├── airflow/                  # orchestration : Dockerfile + dags/flight_etl_dag.py (toutes les 2 h)
+├── Dockerfile                # image flight-etl (JDK 17 + Python 3.11 + deps + code)
+├── docker-compose.yml        # services etl + dashboard (+ profil airflow : postgres + airflow)
+├── .dockerignore             # (et .env.example pour surcharges/secrets)
+├── tests/                    # unit / integration / e2e (~95 tests)
+├── data/airports.dat         # référentiel aéroports OpenFlights (auto-téléchargé/rafraîchi)
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
 ├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
 ├── documentation/
@@ -58,6 +99,26 @@ docker compose up        # build l'image, lance le batch ETL + le dashboard
 - Relancer un batch plus tard : `docker compose run --rm etl`.
 - (Optionnel) `cp .env.example .env` pour des identifiants FR24 ou ajuster la mémoire Spark.
 
+## 🗓️ Orchestration Airflow (toutes les 2 h)
+
+Airflow **orchestre** le pipeline (il ne l'exécute pas en interne) : le DAG déclenche le batch dans
+un conteneur `flight-etl` isolé via **DockerOperator** (équivalent local du `KubernetesPodOperator`
+de prod), toutes les 2 h.
+
+```bash
+docker compose build                         # image flight-etl
+docker compose --profile airflow up -d       # Airflow (:8080) + dashboard (:8501)
+```
+
+- **Airflow** : http://localhost:8080 — login `admin`, mot de passe dans les logs
+  (`docker compose logs airflow | grep -i password`). DAG `flight_etl_pipeline`, planifié `0 */2 * * *`.
+- **Dashboard** : http://localhost:8501 — visualise chaque run planifié (onglet « Statut
+  d'exécution ») et les KPIs rafraîchis (onglet « KPIs (Gold) »).
+- Déclencher un run à la demande :
+  `docker compose exec airflow airflow dags trigger flight_etl_pipeline`.
+
+> Airflow = ordonnancement & supervision · dashboard = visualisation · `flight-etl` = exécution.
+
 ## Démarrage rapide (natif, sans Docker)
 
 ```bash
@@ -72,6 +133,22 @@ pytest -m "not slow and not e2e" -q               # tests
 > `%USERPROFILE%\hadoop\bin` et `HADOOP_HOME` est **auto-détecté** (comme `PYSPARK_PYTHON`).
 > Voir [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
 > *(Docker évite ce prérequis entièrement.)*
+
+## Commandes utiles (interaction)
+
+| Action | Commande |
+|---|---|
+| Démo : 1 batch + dashboard | `docker compose up` |
+| Mode orchestré : Airflow + dashboard | `docker compose --profile airflow up -d` |
+| Relancer un batch à la main | `docker compose run --rm etl` |
+| Déclencher le DAG immédiatement | `docker compose exec airflow airflow dags trigger flight_etl_pipeline` |
+| Mot de passe admin Airflow | `docker compose logs airflow \| grep -i password` |
+| Suivre les logs d'un service | `docker compose logs -f etl` (ou `airflow`, `dashboard`) |
+| Reconstruire après modif du code | `docker compose build` |
+| Arrêter (données conservées) | `docker compose --profile airflow down` |
+| Tout réinitialiser (efface les volumes) | `docker compose --profile airflow down -v` |
+
+**Interfaces** : dashboard → http://localhost:8501 · Airflow → http://localhost:8080
 
 ## Documentation
 

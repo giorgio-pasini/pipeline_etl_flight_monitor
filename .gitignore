@@ -1,80 +1,66 @@
-# Datalake local
+# ── Données du datalake & sorties générées ──────────────────
+#    (bronze/silver/gold, _logs, _reference/airports.dat téléchargé…)
 datalake/
 .datalake/
 
-# Secrets (surcharge Docker / env) — ne jamais committer
+# ── Secrets / surcharges locales  (garder .env.example) ─────
 .env
+.env.local
+.env.*.local
 
-# Spark
-.spark/
-metastore_db/
-derby.log
-
-# Python
+# ── Python ──────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
 
-# Virtual environments
+# ── Environnements virtuels ─────────────────────────────────
+.venv/
 venv/
-ENV/
 env/
-.venv
+ENV/
 
-# IDEs
+# ── Spark (artefacts locaux) ────────────────────────────────
+.spark/
+spark-warehouse/
+metastore_db/
+derby.log
+
+# ── Airflow (si lancé en local hors conteneur ; les DAGs restent suivis) ──
+airflow/logs/
+airflow.cfg
+airflow.db
+webserver_config.py
+standalone_admin_password.txt
+simple_auth_manager_passwords.json.generated
+
+# ── Tests & qualité de code ─────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Jupyter ─────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── IDE / OS ────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Logs
-logs/
-*.log
-datalake/_logs/
-
-# OS
-.DS_Store
 Thumbs.db
 
-# Temporary
+# ── Logs & temporaires ──────────────────────────────────────
+*.log
 *.tmp
 *.bak
+*.pid
 .tmp/
-
-# Test coverage
-.coverage
-htmlcov/
-
-# Pytest
-.pytest_cache/
