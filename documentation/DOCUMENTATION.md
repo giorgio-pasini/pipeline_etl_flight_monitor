@@ -203,6 +203,10 @@ Plutôt que ~1 appel détaillé **par vol** (des milliers d'appels → 429), on 
 - **`dim_airports`** : source configurable via **`DIM_AIRPORTS_SOURCE`** :
   - `static` (**défaut, recommandé**) : jeu **OpenFlights** local `data/airports.dat` (~6000
     aéroports avec IATA/lat/lon/pays) — **zéro appel API, zéro quota**, fiable.
+    **Auto-géré** par `dimension_loader.ensure_airports_dataset()` : téléchargé s'il est absent,
+    rafraîchi si plus vieux que `DIM_AIRPORTS_MAX_AGE_DAYS` (14 j), sinon rien. URL et TTL
+    surchargeables (`DIM_AIRPORTS_STATIC_URL`, `DIM_AIRPORTS_MAX_AGE_DAYS`). En cas d'échec
+    réseau, on garde le fichier existant (**fallback hors-ligne**). → aucun jeu figé dans l'image.
   - `api` : `get_airports()` (1 appel/pays, ~228) — idéal en principe mais **lent (~30 min)** et
     **429 en anonyme**.
 - **Cache** : les dimensions sont relues du cache Silver si plus récentes que
@@ -225,7 +229,30 @@ Plutôt que ~1 appel détaillé **par vol** (des milliers d'appels → 429), on 
 
 ## 6. Exécution & exploitation
 
-### Prérequis Windows (Spark/Parquet)
+### Exécution avec Docker (recommandé, zéro prérequis)
+Une **image unique** (`Dockerfile`) embarque JDK 17 + Python 3.11 + dépendances + code. En
+conteneur Linux, **winutils/HADOOP_HOME ne s'appliquent pas** (prérequis Windows uniquement). Le
+`docker-compose.yml` définit deux services partageant le volume nommé `datalake` :
+
+| Service | Rôle |
+|---|---|
+| `etl` | exécute `run_job.py --with-silver-gold` (un batch complet) puis sort |
+| `dashboard` | sert Streamlit sur `http://localhost:8501` (toujours up) |
+
+```bash
+docker compose up                 # build + lance ETL et dashboard
+docker compose run --rm etl       # relancer un batch à la demande
+docker compose down               # arrêter (le volume datalake persiste)
+docker compose down -v            # arrêter + supprimer les données (run vierge)
+```
+
+- **Pas de `.env` requis** ; `cp .env.example .env` pour des identifiants FR24
+  (`FR24_EMAIL/PASSWORD`) ou ajuster `SPARK_DRIVER_MEMORY` (allouer ≥ 4 Go à Docker Desktop).
+- Le jeu OpenFlights est **téléchargé une fois** sous `datalake/_reference/airports.dat` (volume),
+  puis rafraîchi à 14 j (cf. §5) — rien n'est figé dans l'image.
+- L'orchestration **Airflow** (à venir) réutilisera cette même image.
+
+### Prérequis Windows (Spark/Parquet) — exécution native
 L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x). **Il suffit de
 les placer dans un dossier `bin\`** parmi les emplacements auto-détectés :
 `%USERPROFILE%\hadoop\bin` (recommandé), `<projet>\vendor\hadoop\bin`, `C:\hadoop\bin` ou
@@ -408,6 +435,8 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
 | `FR24_EMAIL` / `FR24_PASSWORD` | login FR24 (quota) | vide (anonyme) |
 | `DIM_AIRPORTS_SOURCE` | `static` (OpenFlights) ou `api` | `static` |
 | `DIM_AIRPORTS_STATIC_PATH` | chemin du jeu aéroports | `data/airports.dat` |
+| `DIM_AIRPORTS_STATIC_URL` | source de téléchargement du jeu | OpenFlights (GitHub) |
+| `DIM_AIRPORTS_MAX_AGE_DAYS` | TTL avant rafraîchissement du jeu | `14` |
 | `DIM_CACHE_MAX_AGE_DAYS` | fraîcheur du cache dimensions | `7` |
 | `ALERT_THRESHOLD_PCT_VALID` | seuil d'alerte qualité | `70` |
 | `ALERT_WEBHOOK_URL` | webhook d'alertes (optionnel) | vide |

@@ -43,10 +43,25 @@ API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dim
 └── premiere_exploration/     # notes de découverte de l'API
 ```
 
-## Démarrage rapide
+## 🐳 Démarrage rapide avec Docker (recommandé)
+
+Aucun prérequis hormis **Docker Desktop** — ni Java, ni Python, ni winutils à installer. Une
+seule commande :
 
 ```bash
-pip install -r requirements.txt
+docker compose up        # build l'image, lance le batch ETL + le dashboard
+```
+
+- Dashboard : **http://localhost:8501** (suivez le run en direct via l'onglet « Statut d'exécution »).
+- Le service `etl` exécute un batch complet (Bronze → Silver → Gold) puis sort ; les données
+  persistent dans le volume `datalake`.
+- Relancer un batch plus tard : `docker compose run --rm etl`.
+- (Optionnel) `cp .env.example .env` pour des identifiants FR24 ou ajuster la mémoire Spark.
+
+## Démarrage rapide (natif, sans Docker)
+
+```bash
+pip install -r requirements.txt                   # Python 3.9–3.11 + un JDK (8/11/17) requis
 python scripts/init_datalake.py
 python scripts/run_job.py --with-silver-gold     # 1 batch : Bronze → Silver → Gold
 streamlit run dashboard.py                        # KPIs : http://localhost:8501
@@ -56,6 +71,7 @@ pytest -m "not slow and not e2e" -q               # tests
 > **Windows** — l'écriture Parquet exige `winutils.exe`/`hadoop.dll` : placez-les dans
 > `%USERPROFILE%\hadoop\bin` et `HADOOP_HOME` est **auto-détecté** (comme `PYSPARK_PYTHON`).
 > Voir [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
+> *(Docker évite ce prérequis entièrement.)*
 
 ## Documentation
 

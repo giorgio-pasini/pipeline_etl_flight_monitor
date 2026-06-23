@@ -1,0 +1,46 @@
+# Pipeline ETL trafic aérien — `docker compose up` :
+#   - `dashboard` : Streamlit sur http://localhost:8501 (toujours up)
+#   - `etl`       : exécute un batch complet (Bronze -> Silver -> Gold) puis sort
+# Les deux partagent le volume nommé `datalake` -> le dashboard suit le run en direct
+# (onglet « Statut d'exécution »). Aucun fichier .env requis : voir .env.example pour surcharger.
+
+services:
+  etl:
+    build: .
+    image: flight-etl:latest
+    command: ["python", "scripts/run_job.py", "--with-silver-gold"]
+    environment:
+      FR24_EMAIL: ${FR24_EMAIL:-}
+      FR24_PASSWORD: ${FR24_PASSWORD:-}
+      SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+      # Jeu OpenFlights persisté dans le volume (téléchargé une fois, rafraîchi à 14 j).
+      DIM_AIRPORTS_STATIC_PATH: /app/datalake/_reference/airports.dat
+    volumes:
+      - datalake:/app/datalake
+    restart: "no"
+
+  dashboard:
+    # Réutilise l'image construite par `etl` (évite une double build concurrente du même tag).
+    image: flight-etl:latest
+    command:
+      - streamlit
+      - run
+      - dashboard.py
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --server.port=8501
+    environment:
+      DIM_AIRPORTS_STATIC_PATH: /app/datalake/_reference/airports.dat
+    ports:
+      - "8501:8501"
+    volumes:
+      - datalake:/app/datalake
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  datalake:

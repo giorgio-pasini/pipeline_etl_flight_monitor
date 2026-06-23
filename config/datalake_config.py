@@ -111,6 +111,13 @@ class DatalakeConfig:
         "DIM_AIRPORTS_STATIC_PATH",
         str(Path(__file__).parent.parent / "data" / "airports.dat"),
     )
+    # Le jeu statique est auto-géré (cf. dimension_loader.ensure_airports_dataset) :
+    # téléchargé s'il est absent, rafraîchi si plus vieux que DIM_AIRPORTS_MAX_AGE_DAYS.
+    DIM_AIRPORTS_STATIC_URL = os.getenv(
+        "DIM_AIRPORTS_STATIC_URL",
+        "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat",
+    )
+    DIM_AIRPORTS_MAX_AGE_DAYS = int(os.getenv("DIM_AIRPORTS_MAX_AGE_DAYS", 14))
 
     # Pays pour la dimension aéroports (source "api" uniquement). "ALL" = tous (lent ~30 min,
     # peu fiable à 228) ;

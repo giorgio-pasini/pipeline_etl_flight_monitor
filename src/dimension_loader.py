@@ -9,8 +9,11 @@ on charge UNE fois les référentiels via des appels bulk peu coûteux :
 Les DataFrames produits sont joints au fact en Silver (transformations.enrich_with_dimensions).
 """
 
+import os
 import time
 import logging
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -68,6 +71,50 @@ def _read_static_airports(path: str, to_float):
                 to_float(rec[7]),                                        # lon
             ))
     return rows
+
+
+def ensure_airports_dataset(path: str, url: str, max_age_days: int, timeout: int = 30) -> bool:
+    """Garantir la présence + la fraîcheur du jeu OpenFlights ``airports.dat``.
+
+    - **absent**  → téléchargé depuis ``url`` et posé à ``path`` (dossier parent créé) ;
+    - **périmé**  (date de modif > ``max_age_days`` jours) → rafraîchi ;
+    - **frais**   → aucune action (no-op).
+
+    En cas d'échec réseau : si un fichier existe déjà on le **conserve** (fallback hors-ligne)
+    et on retourne True ; s'il est absent on retourne False (``load_dim_airports`` gère alors
+    le repli sur cache/None).
+
+    Returns:
+        True si un fichier exploitable est en place à ``path``, False sinon.
+    """
+    p = Path(path)
+
+    if p.exists():
+        age_days = (time.time() - p.stat().st_mtime) / 86400.0
+        if age_days < max_age_days:
+            logger.info(f"airports.dat à jour ({age_days:.1f}j < {max_age_days}j) : {p}")
+            return True
+        logger.info(f"airports.dat périmé ({age_days:.1f}j ≥ {max_age_days}j) → rafraîchissement")
+    else:
+        logger.info(f"airports.dat absent → téléchargement depuis {url}")
+
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            data = resp.read()
+        if not data:
+            raise ValueError("réponse vide")
+        tmp.write_bytes(data)
+        os.replace(tmp, p)  # remplacement atomique
+        logger.info(f"✓ airports.dat écrit ({len(data) // 1024} Ko) : {p}")
+        return True
+    except (urllib.error.URLError, ValueError, OSError) as e:
+        if p.exists():
+            logger.warning(f"Téléchargement airports.dat échoué ({e}) → repli sur le fichier existant")
+            return True
+        logger.error(f"Téléchargement airports.dat échoué et aucun fichier local ({e})")
+        return False
 
 
 def _resolve_countries(config):
@@ -158,6 +205,13 @@ def load_dim_airports(spark: SparkSession, api, config) -> Optional[DataFrame]:
 
     # Source statique (OpenFlights) — fiable, sans appel API ni quota.
     if getattr(config, "DIM_AIRPORTS_SOURCE", "static") == "static":
+        # Bootstrap auto : télécharge/rafraîchit le jeu si absent ou périmé (TTL config).
+        ensure_airports_dataset(
+            config.DIM_AIRPORTS_STATIC_PATH,
+            config.DIM_AIRPORTS_STATIC_URL,
+            config.DIM_AIRPORTS_MAX_AGE_DAYS,
+            timeout=config.API_TIMEOUT_SECONDS,
+        )
         rows = _read_static_airports(config.DIM_AIRPORTS_STATIC_PATH, _f)
         if not rows:
             logger.warning(f"Fichier aéroports statique vide/introuvable : {config.DIM_AIRPORTS_STATIC_PATH}")

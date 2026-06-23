@@ -2,6 +2,9 @@
 datalake/
 .datalake/
 
+# Secrets (surcharge Docker / env) — ne jamais committer
+.env
+
 # Spark
 .spark/
 metastore_db/

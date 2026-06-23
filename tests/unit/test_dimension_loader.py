@@ -1,11 +1,19 @@
 """Tests pour le chargement bulk + cache des dimensions de référence."""
 
+import os
 import time
+import urllib.error
+from contextlib import contextmanager
 from unittest.mock import Mock
 
 import pytest
 
-from src.dimension_loader import _cache_fresh, load_dim_airlines, _read_static_airports
+from src.dimension_loader import (
+    _cache_fresh,
+    load_dim_airlines,
+    _read_static_airports,
+    ensure_airports_dataset,
+)
 
 
 def _tf(x):
@@ -34,6 +42,64 @@ class TestStaticAirports:
 
     def test_missing_file_returns_empty(self, tmp_path):
         assert _read_static_airports(str(tmp_path / "nope.dat"), _tf) == []
+
+
+class TestEnsureAirportsDataset:
+    URL = "https://example.invalid/airports.dat"
+    PAYLOAD = b'1,"JFK Intl","New York","United States","JFK","KJFK",40.63,-73.77,13,-5,"A","x","airport","s"\n'
+
+    def _patch_urlopen(self, monkeypatch, payload=PAYLOAD, exc=None):
+        """Remplace urllib.request.urlopen ; renvoie un compteur d'appels."""
+        calls = {"n": 0}
+
+        @contextmanager
+        def fake_urlopen(url, timeout=None):
+            calls["n"] += 1
+            if exc is not None:
+                raise exc
+            yield Mock(read=lambda: payload)
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        return calls
+
+    def test_fresh_file_no_download(self, tmp_path, monkeypatch):
+        f = tmp_path / "airports.dat"
+        f.write_bytes(self.PAYLOAD)
+        calls = self._patch_urlopen(monkeypatch)
+        assert ensure_airports_dataset(str(f), self.URL, max_age_days=14) is True
+        assert calls["n"] == 0  # frais → aucun téléchargement
+
+    def test_absent_downloads(self, tmp_path, monkeypatch):
+        f = tmp_path / "sub" / "airports.dat"  # dossier parent inexistant
+        calls = self._patch_urlopen(monkeypatch)
+        assert ensure_airports_dataset(str(f), self.URL, max_age_days=14) is True
+        assert calls["n"] == 1
+        assert f.exists() and f.read_bytes() == self.PAYLOAD
+
+    def test_stale_refreshes(self, tmp_path, monkeypatch):
+        f = tmp_path / "airports.dat"
+        f.write_bytes(b"old")
+        old = time.time() - 15 * 86400  # 15 jours
+        os.utime(f, (old, old))
+        calls = self._patch_urlopen(monkeypatch, payload=self.PAYLOAD)
+        assert ensure_airports_dataset(str(f), self.URL, max_age_days=14) is True
+        assert calls["n"] == 1
+        assert f.read_bytes() == self.PAYLOAD  # rafraîchi
+
+    def test_network_failure_keeps_existing(self, tmp_path, monkeypatch):
+        f = tmp_path / "airports.dat"
+        f.write_bytes(b"existing")
+        old = time.time() - 30 * 86400
+        os.utime(f, (old, old))  # périmé → tente un téléchargement
+        self._patch_urlopen(monkeypatch, exc=urllib.error.URLError("boom"))
+        assert ensure_airports_dataset(str(f), self.URL, max_age_days=14) is True
+        assert f.read_bytes() == b"existing"  # fallback : on garde l'existant
+
+    def test_network_failure_absent_returns_false(self, tmp_path, monkeypatch):
+        f = tmp_path / "airports.dat"
+        self._patch_urlopen(monkeypatch, exc=urllib.error.URLError("boom"))
+        assert ensure_airports_dataset(str(f), self.URL, max_age_days=14) is False
+        assert not f.exists()
 
 
 class TestCacheFresh:

@@ -1,0 +1,31 @@
+# Données locales & sorties (jamais dans l'image)
+datalake/
+data/                 # seed airports.dat NON bundlé : téléchargé au runtime (volume)
+
+# Git / CI
+.git/
+.gitignore
+
+# Environnements & caches Python
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Tests, notes d'exploration, notebooks (inutiles au runtime)
+tests/
+premiere_exploration/
+*.ipynb
+
+# Docs (non requises dans l'image)
+documentation/
+*.md
+
+# Secrets & logs
+.env
+*.log
