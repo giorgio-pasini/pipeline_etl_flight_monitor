@@ -105,13 +105,15 @@ Airflow **orchestre** le pipeline (il ne l'exécute pas en interne) : le DAG dé
 un conteneur `flight-etl` isolé via **DockerOperator** (équivalent local du `KubernetesPodOperator`
 de prod), toutes les 2 h.
 
+*important* : le moteur docker desktop doit etre actif
+
 ```bash
 docker compose build                         # image flight-etl
 docker compose --profile airflow up -d       # Airflow (:8080) + dashboard (:8501)
 ```
 
-- **Airflow** : http://localhost:8080 — login `admin`, mot de passe dans les logs
-  (`docker compose logs airflow | grep -i password`). DAG `flight_etl_pipeline`, planifié `0 */2 * * *`.
+- **Airflow** : http://localhost:8080 — identifiants **`admin` / `admin`**. DAG
+  `flight_etl_pipeline`, planifié `0 */2 * * *`.
 - **Dashboard** : http://localhost:8501 — visualise chaque run planifié (onglet « Statut
   d'exécution ») et les KPIs rafraîchis (onglet « KPIs (Gold) »).
 - Déclencher un run à la demande :

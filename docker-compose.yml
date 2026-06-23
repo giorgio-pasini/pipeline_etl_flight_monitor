@@ -67,7 +67,16 @@ services:
     image: flight-airflow:latest
     profiles: ["airflow"]
     user: "0:0"
-    command: ["airflow", "standalone"]
+    # Identifiants déterministes admin/admin : on crée l'utilisateur AVANT `standalone`
+    # (qui ne retouche pas un admin existant) -> pas de mot de passe aléatoire à chercher.
+    command:
+      - bash
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --role Admin --username admin --password admin --firstname Admin --lastname User --email admin@example.com || true
+        airflow users reset-password --username admin --password admin
+        exec airflow standalone
     depends_on:
       postgres:
         condition: service_healthy
