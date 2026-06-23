@@ -9,8 +9,7 @@ Philosophie :
 
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col, when, concat_ws, length, coalesce,
-    lit, upper, trim, expr
+    col, when, concat_ws, length, upper, trim, expr
 )
 import logging
 
@@ -160,65 +159,6 @@ def validate_and_flag_flights(df: DataFrame, logger=None) -> DataFrame:
 
     log.info(f"Data quality check: {total} vols total | {valid} valides ({pct_valid:.1f}%) | "
              f"{on_ground} au sol ({pct_on_ground:.1f}%)")
-
-    return df
-
-
-def check_missing_enrichment(df: DataFrame, logger=None) -> DataFrame:
-    """
-    Vérifie que les colonnes d'enrichissement (country, continent, etc.) sont présentes
-    et complètes. Les ajoute à data_quality_flags si manquantes.
-
-    Flags additionnels :
-    - MISSING_ORIGIN_COUNTRY: origin_airport_country_code absent
-    - MISSING_DESTINATION_COUNTRY: destination_airport_country_code absent
-    - MISSING_AIRLINE_NAME: airline_name absent (optionnel, warning)
-    """
-
-    log = logger if logger is not None else _module_logger
-
-    # Vérifier que les colonnes enrichissement existent
-    required_enrichment = [
-        "origin_airport_country_code",
-        "destination_airport_country_code",
-        "airline_name"
-    ]
-
-    missing_cols = [col for col in required_enrichment if col not in df.columns]
-    if missing_cols:
-        log.warning(f"Colonnes d'enrichissement manquantes (ajouter check_missing_enrichment après enrichissement) : {missing_cols}")
-        return df
-
-    # Ajouter aux flags si absent
-    current_flags = coalesce(col("data_quality_flags"), lit(""))
-
-    new_flags = current_flags
-
-    if "origin_airport_country_code" in df.columns:
-        new_flags = concat_ws(
-            ",",
-            new_flags,
-            when((col("origin_airport_country_code").isNull()) & (col("is_valid") == True),
-                 "MISSING_ORIGIN_COUNTRY").otherwise(None)
-        )
-
-    if "destination_airport_country_code" in df.columns:
-        new_flags = concat_ws(
-            ",",
-            new_flags,
-            when((col("destination_airport_country_code").isNull()) & (col("is_valid") == True),
-                 "MISSING_DESTINATION_COUNTRY").otherwise(None)
-        )
-
-    df = df.withColumn("data_quality_flags",
-                       when(new_flags == "", None).otherwise(new_flags))
-
-    # Recompute is_valid : un vol reste valide seulement s'il l'était déjà
-    # (critères on_ground/route/airline) ET qu'aucun flag n'a été ajouté.
-    df = df.withColumn(
-        "is_valid",
-        when(col("data_quality_flags").isNull() & col("is_valid"), True).otherwise(False)
-    )
 
     return df
 

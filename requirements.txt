@@ -1,43 +1,16 @@
-# Requirements pour le pipeline ETL trafic aérien
+# Dépendances runtime du pipeline ETL trafic aérien
 
-# Core
+# Spark + lecture/écriture Parquet
 pyspark==3.5.0
-numpy==1.26.0
 pandas==2.1.0
-pyarrow>=12.0  # lecture Parquet pandas (dashboard KPIs Gold, sans Spark)
+pyarrow>=12.0          # lecture Parquet pandas (dashboard KPIs Gold, sans Spark)
 
-# API
+# API FlightRadar24
 FlightRadarAPI==1.5.1
 beautifulsoup4==4.14.3
 curl-cffi==0.15.0
 
-# Configuration
-PyYAML==6.0
-
-# Logging & monitoring (phase 2)
-python-dotenv==1.0.0
-
-# Dashboard (phase 2)
+# Dashboard
 streamlit==1.30.0
 
-# Database/Storage (futur)
-# Delta Lake
-delta-spark==3.1.0
-
-# Data quality & monitoring (futur)
-great_expectations==0.17.0
-
-# Deployment (futur)
-apache-airflow==2.7.0
-
-# Testing
-pytest==7.4.0
-pytest-spark==0.6.0
-pytest-cov==4.1.0
-pytest-mock==3.12.0
-pydantic==2.4.0
-
-# Development
-black==23.10.0
-flake8==6.1.0
-mypy==1.5.0
+# Tests :    pip install -r requirements-dev.txt

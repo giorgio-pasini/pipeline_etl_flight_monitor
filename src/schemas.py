@@ -9,8 +9,7 @@ Ces schémas garantissent :
 
 from pyspark.sql.types import (
     StructType, StructField,
-    StringType, DoubleType, IntegerType, BooleanType,
-    TimestampType, DateType, ArrayType, LongType
+    StringType, DoubleType, IntegerType, BooleanType, TimestampType,
 )
 
 
@@ -134,95 +133,15 @@ schema_fact_flights = StructType([
 
 
 # ============================================================================
-# COUCHE GOLD — Tables agrégées pour les KPIs
+# COUCHE GOLD — Tables KPI
 # ============================================================================
-
-schema_kpi_airline_volumes = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("airline_icao", StringType(), nullable=False),
-    StructField("airline_name", StringType(), nullable=True),
-    StructField("active_flights_count", IntegerType(), nullable=False),
-    StructField("rank", IntegerType(), nullable=True),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_continental_regional = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("continent_code", StringType(), nullable=False),
-    StructField("airline_icao", StringType(), nullable=False),
-    StructField("airline_name", StringType(), nullable=True),
-    StructField("regional_flights_count", IntegerType(), nullable=False),
-    StructField("rank", IntegerType(), nullable=True),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_longest_flights = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("flight_id", StringType(), nullable=False),
-    StructField("callsign", StringType(), nullable=True),
-    StructField("airline_name", StringType(), nullable=True),
-    StructField("origin_airport_name", StringType(), nullable=True),
-    StructField("destination_airport_name", StringType(), nullable=True),
-    StructField("distance_nm", DoubleType(), nullable=False),
-    StructField("current_latitude", DoubleType(), nullable=True),
-    StructField("current_longitude", DoubleType(), nullable=True),
-    StructField("current_altitude_feet", DoubleType(), nullable=True),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_continental_avg_distance = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("continent_code", StringType(), nullable=False),
-    StructField("continent_name", StringType(), nullable=True),
-    StructField("avg_distance_nm", DoubleType(), nullable=False),
-    StructField("min_distance_nm", DoubleType(), nullable=False),
-    StructField("max_distance_nm", DoubleType(), nullable=False),
-    StructField("flight_count", IntegerType(), nullable=False),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_aircraft_manufacturers = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("manufacturer", StringType(), nullable=False),
-    StructField("active_flights_count", IntegerType(), nullable=False),
-    StructField("rank", IntegerType(), nullable=True),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_airline_aircraft_models = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("airline_icao", StringType(), nullable=False),
-    StructField("airline_country_code", StringType(), nullable=True),
-    StructField("airline_name", StringType(), nullable=True),
-    StructField("rank", IntegerType(), nullable=False),  # 1, 2, 3
-    StructField("aircraft_code", StringType(), nullable=False),
-    StructField("aircraft_model", StringType(), nullable=True),
-    StructField("usage_count", IntegerType(), nullable=False),
-    StructField("computed_at", TimestampType(), nullable=False),
-])
-
-schema_kpi_airport_imbalance = StructType([
-    StructField("kpi_date", DateType(), nullable=False),
-    StructField("kpi_hour", IntegerType(), nullable=False),
-    StructField("airport_iata", StringType(), nullable=False),
-    StructField("airport_name", StringType(), nullable=True),
-    StructField("country_name", StringType(), nullable=True),
-    StructField("outgoing_flights", IntegerType(), nullable=False),
-    StructField("incoming_flights", IntegerType(), nullable=False),
-    StructField("imbalance", IntegerType(), nullable=False),  # outgoing - incoming
-    StructField("imbalance_abs", IntegerType(), nullable=False),  # |imbalance|
-    StructField("computed_at", TimestampType(), nullable=False),
-])
+# Les 7 tables Gold sont produites dynamiquement par `src/transformations.py`
+# (chaque KPI inclut `computed_at`) et écrites partitionnées tech_year/month/day.
+# Leur structure n'est pas figée par un schéma forcé ici ; voir DOCUMENTATION.md §2.
 
 
 # ============================================================================
-# Dictionnaire de référence (pour accès facile)
+# Dictionnaire de référence (pour accès facile / documentation)
 # ============================================================================
 
 SCHEMAS = {
@@ -235,13 +154,4 @@ SCHEMAS = {
     "dim_aircraft_models": schema_dim_aircraft_models,
     "dim_countries_continents": schema_dim_countries_continents,
     "fact_flights": schema_fact_flights,
-
-    # Gold
-    "kpi_airline_volumes": schema_kpi_airline_volumes,
-    "kpi_continental_regional": schema_kpi_continental_regional,
-    "kpi_longest_flights": schema_kpi_longest_flights,
-    "kpi_continental_avg_distance": schema_kpi_continental_avg_distance,
-    "kpi_aircraft_manufacturers": schema_kpi_aircraft_manufacturers,
-    "kpi_airline_aircraft_models": schema_kpi_airline_aircraft_models,
-    "kpi_airport_imbalance": schema_kpi_airport_imbalance,
 }

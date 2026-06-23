@@ -157,11 +157,7 @@ des **labels string** cohérents entre couches (sinon Spark inférerait `tech_ye
 `BRONZE_RETENTION_DAYS=30`, `SILVER=60`, `GOLD=365`. Nettoyage par
 `scripts/purge_old_partitions.py` (dry-run par défaut) qui s'appuie sur
 `datalake_utils.cleanup_old_partitions` (os.walk, compatible Python < 3.12).
-
-### Optimisation (outillage)
-`src/partitioning_optimizer.py` + `scripts/profile_partitions.py` analysent le skew, estiment
-les tailles et recommandent une config. `config/spark_tuning.py` fournit 4 profils
-(POC / BATCH / ANALYTICS / PRODUCTION).
+Le tuning Spark (mémoire, shuffle) se règle via `DatalakeConfig`/variables d'env (§6).
 
 ---
 
@@ -355,7 +351,7 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
 | 3 | POC Spark batch | extraction API → Bronze |
 | 3.5 | Test-Based Dev | suite pytest (unit/integration/e2e) |
 | 4 | Transformation Silver+Gold | `transformations.py`, 7 KPIs |
-| 5 | Optimisation partitionnement | optimizer + 4 profils Spark |
+| 5 | Optimisation partitionnement | outillage d'analyse (retiré en §14 pour alléger) |
 | 6 | Logging & monitoring | `JobMetrics` + dashboard Streamlit |
 | 7 | Job final + scheduling | job unifié `run_batch` + cron/Task Scheduler |
 | 8 | Revue de code & corrections | unification du job, bugs critiques, `reference_data` |
@@ -364,6 +360,7 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
 | 11 | Anti-quota | login, backoff 429, dims bulk + cache, source aéroports static |
 | 12 | Dashboard KPIs (Gold) | page valeurs métier (pandas/pyarrow) |
 | 13 | Partitionnement → tech_day | Silver & Gold jusqu'au jour |
+| 14 | Allègement du projet | retrait tooling non câblé, code mort, schémas KPI périmés, `requirements` slim |
 
 ### Corrections notables (hardening)
 - **Job unifié** : suppression d'un duplicata `streaming_job.py` ; toute la logique dans
@@ -382,9 +379,8 @@ Le projet a été construit en 13 étapes (détail des décisions ci-dessous ré
 
 - **Code** : modules `src/` (schemas, data_quality, flight_extraction, batch_job,
   transformations, silver_gold_loader, dimension_loader, reference_data, job_metrics, alerting,
-  datalake_utils, partitioning_optimizer), `config/` (datalake_config, spark_tuning), `scripts/`
-  (run_job, init_datalake, purge_old_partitions, profile_partitions, schedule_job.sh/ps1),
-  `dashboard.py`.
+  datalake_utils), `config/` (datalake_config), `scripts/`
+  (run_job, init_datalake, purge_old_partitions, schedule_job.sh/ps1), `dashboard.py`.
 - **Données de référence** : `data/airports.dat` (OpenFlights, ~7700 aéroports).
 - **Tests** : ~85 (unit + integration + e2e).
 - **Pipeline vérifié de bout en bout** (run anonyme) : 9 zones → Bronze ≈ 7600 vols → Silver

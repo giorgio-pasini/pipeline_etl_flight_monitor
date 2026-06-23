@@ -5,8 +5,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from src.datalake_utils import (
     get_partition_values,
-    build_partition_path,
-    parse_partition_path,
     cleanup_old_partitions,
     list_partitions,
 )
@@ -35,27 +33,6 @@ class TestPartitioningUtils:
         assert values['tech_month'] == '2026-06'
         assert values['tech_day'] == '2026-06-21'
         assert values['tech_hour'] == '14'
-
-    def test_build_partition_path(self, temp_datalake):
-        """Construire le chemin partitionné complet."""
-        now = datetime(2026, 6, 21, 14, 30, 0)
-        path = build_partition_path(temp_datalake / "bronze", "flights_raw", now)
-
-        assert isinstance(path, str)
-        assert "tech_year=2026" in path
-        assert "tech_month=2026-06" in path
-        assert "tech_day=2026-06-21" in path
-        assert "tech_hour=14" in path
-
-    def test_parse_partition_path(self):
-        """Parser un chemin partitionné pour extraire les valeurs."""
-        path = "/data/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14"
-        parsed = parse_partition_path(path)
-
-        assert parsed['tech_year'] == '2026'
-        assert parsed['tech_month'] == '2026-06'
-        assert parsed['tech_day'] == '2026-06-21'
-        assert parsed['tech_hour'] == '14'
 
     def test_cleanup_dry_run(self, temp_datalake):
         """Le dry-run ne doit pas supprimer les fichiers."""
@@ -138,15 +115,6 @@ class TestCleanupRealMode:
 
 class TestPartitionFiltering:
     """Tests pour les filtres de partition."""
-
-    def test_partition_date_extraction(self):
-        """Extraire la date d'un chemin partitionné."""
-        path = "/data/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14"
-        parsed = parse_partition_path(path)
-
-        # Vérifier qu'on peut construire une date
-        date_str = parsed['tech_day']
-        assert date_str == '2026-06-21'
 
     def test_old_partition_identification(self):
         """Identifier si une partition est ancienne."""

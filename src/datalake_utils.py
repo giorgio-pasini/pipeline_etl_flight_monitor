@@ -46,90 +46,6 @@ def get_partition_values(timestamp: datetime) -> dict:
     }
 
 
-def build_partition_path(base_path, table_name: str, timestamp: datetime) -> str:
-    """
-    Construire un chemin partitionné complet pour une table et une timestamp.
-
-    Args:
-        base_path: chemin de la couche (ex: "datalake/bronze")
-        table_name: nom de la table (ex: "flights_raw")
-        timestamp: datetime
-
-    Returns:
-        Chemin partitionné complet
-        (ex: "datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/...")
-
-    Example:
-        >>> build_partition_path("datalake/bronze", "flights_raw", datetime(2026, 6, 21, 14))
-        "datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14"
-    """
-    parts = get_partition_values(timestamp)
-    path = f"{base_path}/{table_name}"
-    for col in ["tech_year", "tech_month", "tech_day", "tech_hour"]:
-        path = f"{path}/{col}={parts[col]}"
-    return path
-
-
-def build_partition_path_gold_kpi(base_path: str, kpi_date: str, kpi_hour: int) -> str:
-    """
-    Construire un chemin Gold partitionné par (kpi_date, kpi_hour).
-
-    Args:
-        base_path: chemin de base KPI (ex: "datalake/gold/kpi_airline_volumes")
-        kpi_date: date au format YYYY-MM-DD
-        kpi_hour: heure 0-23
-
-    Returns:
-        Chemin complet (ex: "datalake/gold/kpi_airline_volumes/kpi_date=2026-06-21/kpi_hour=14")
-    """
-    return f"{base_path}/kpi_date={kpi_date}/kpi_hour={kpi_hour:02d}"
-
-
-def parse_partition_path(full_path: str) -> Optional[dict]:
-    """
-    Parser un chemin partitionné pour extraire les valeurs de partition.
-
-    Args:
-        full_path: chemin avec partitions (ex: "datalake/bronze/flights_raw/tech_year=2026/...")
-
-    Returns:
-        dict {tech_year: "2026", tech_month: "2026-06", ...} ou None si aucune partition
-
-    Example:
-        >>> parse_partition_path("datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14")
-        {"tech_year": "2026", "tech_month": "2026-06", "tech_day": "2026-06-21", "tech_hour": "14"}
-    """
-    # Regex : extraire les partitions key=value
-    pattern = r"([a-z_]+)=([a-zA-Z0-9\-]+)"
-    matches = re.findall(pattern, full_path)
-
-    if not matches:
-        return None
-
-    return {k: v for k, v in matches}
-
-
-def get_partition_datetime(partition_dict: dict) -> Optional[datetime]:
-    """
-    Reconstituer un datetime à partir d'un dict de partitions.
-
-    Args:
-        partition_dict: {tech_year, tech_month, tech_day, tech_hour}
-
-    Returns:
-        datetime ou None si parse échoue
-    """
-    try:
-        if "tech_day" in partition_dict and "tech_hour" in partition_dict:
-            day_str = partition_dict["tech_day"]  # YYYY-MM-DD
-            hour_str = partition_dict["tech_hour"]  # HH
-            return datetime.strptime(f"{day_str} {hour_str}", "%Y-%m-%d %H")
-    except (KeyError, ValueError) as e:
-        logger.warning(f"Impossible de parser partitions : {e}")
-
-    return None
-
-
 def cleanup_old_partitions(
     datalake_path: Optional[str] = None,
     layer: str = "bronze",  # "bronze", "silver", "gold"
@@ -267,13 +183,7 @@ def estimate_storage_usage(datalake_path: str) -> dict:
 
 
 if __name__ == "__main__":
-    # Test
-    import sys
     logging.basicConfig(level=logging.INFO)
 
     ts = datetime(2026, 6, 21, 14, 30, 0)
     print(f"Partition values: {get_partition_values(ts)}")
-    print(f"Full path: {build_partition_path('datalake/bronze', 'flights_raw', ts)}")
-
-    kpi_path = build_partition_path_gold_kpi("datalake/gold/kpi_airline_volumes", "2026-06-21", 14)
-    print(f"Gold KPI path: {kpi_path}")

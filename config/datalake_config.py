@@ -50,9 +50,7 @@ class DatalakeConfig:
     BATCH_INTERVAL_HOURS = 2  # Toutes les 2 heures, comme spécifié dans le kata
     BATCH_INTERVAL_MINUTES = BATCH_INTERVAL_HOURS * 60
 
-    COLLECTION_TIMEOUT_MINUTES = 30  # Timeout pour une collecte de zone
-
-    STREAMING_CHECKPOINT_INTERVAL_SECONDS = 300  # 5 minutes entre checkpoints
+    COLLECTION_TIMEOUT_MINUTES = 30  # Timeout pour une collecte de zone (SLA alerting)
 
     # ============================================================================
     # Configuration Spark
@@ -63,15 +61,12 @@ class DatalakeConfig:
 
     # Tuning pour Spark Core Batch
     SPARK_SHUFFLE_PARTITIONS = int(os.getenv("SPARK_SHUFFLE_PARTITIONS", 200))
-    SPARK_MAX_PARTITIONS_PER_EXECUTOR = 5
     SPARK_EXECUTOR_MEMORY = os.getenv("SPARK_EXECUTOR_MEMORY", "4g")
     SPARK_DRIVER_MEMORY = os.getenv("SPARK_DRIVER_MEMORY", "2g")
     SPARK_EXECUTOR_CORES = int(os.getenv("SPARK_EXECUTOR_CORES", 4))
     SPARK_EXECUTOR_INSTANCES = int(os.getenv("SPARK_EXECUTOR_INSTANCES", 4))
 
-    # Optimisations
     SPARK_ADAPTIVE_EXECUTION_ENABLED = True
-    SPARK_COALESCE_SHUFFLE_PARTITIONS_MIN_PARTITION_NUM = 1
 
     # ============================================================================
     # Logging
@@ -133,8 +128,6 @@ class DatalakeConfig:
         "CHILE", "COLOMBIA", "PERU", "SOUTH_AFRICA", "EGYPT", "MOROCCO",
         "ETHIOPIA", "KENYA", "NIGERIA",
     ])
-
-    FLIGHTS_BATCH_SIZE_LIMIT = 1500  # Limite de vols retournés par get_flights() sans bounds
 
     # Zones à collecter. L'appel global est plafonné à 1500 vols ; en itérant les zones
     # top-level (bounds), chaque appel monte jusqu'à 5000 vols -> couverture bien plus large.
@@ -251,9 +244,6 @@ class DatalakeConfig:
 PARTITION_COLUMNS_BRONZE = ["tech_year", "tech_month", "tech_day", "tech_hour"]
 PARTITION_COLUMNS_SILVER = ["tech_year", "tech_month", "tech_day"]
 PARTITION_COLUMNS_GOLD = ["tech_year", "tech_month", "tech_day"]
-
-PARTITION_DATE_FORMAT = "%Y-%m-%d"  # YYYY-MM-DD
-PARTITION_TIME_FORMAT = "%H"  # HH (00-23)
 
 # Exemple de chemin complet :
 # datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14/

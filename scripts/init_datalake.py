@@ -118,10 +118,10 @@ def create_gold_tables(config: DatalakeConfig, logger: logging.Logger):
     kpi_tables = [
         "kpi_airline_volumes",
         "kpi_continental_regional",
-        "kpi_longest_flights",
+        "kpi_longest_flight",
         "kpi_continental_avg_distance",
         "kpi_aircraft_manufacturers",
-        "kpi_airline_aircraft_models",
+        "kpi_airline_aircraft_top3",
         "kpi_airport_imbalance",
     ]
 

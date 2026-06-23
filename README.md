@@ -29,14 +29,14 @@ API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dim
 │   ├── reference_data.py     #   pays→continent, avion→constructeur
 │   ├── job_metrics.py        #   métriques d'exécution (JSON)
 │   ├── alerting.py           #   alertes (fichier/log/webhook)
-│   └── datalake_utils.py, partitioning_optimizer.py
-├── config/                   # datalake_config.py (config centralisée), spark_tuning.py
+│   └── datalake_utils.py     #   partitions, rétention/cleanup
+├── config/                   # datalake_config.py (config centralisée)
 ├── scripts/                  # run_job.py, init_datalake.py, purge_old_partitions.py,
-│                             #   profile_partitions.py, schedule_job.sh/ps1
+│                             #   schedule_job.sh/ps1
 ├── tests/                    # unit / integration / e2e (~85 tests)
 ├── data/airports.dat         # référentiel aéroports (OpenFlights)
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
-├── dashboard.py              # dashboard Streamlit (4 pages)
+├── dashboard.py              # dashboard Streamlit (3 pages)
 ├── documentation/
 │   └── DOCUMENTATION.md       # 📖 documentation technique complète
 ├── plan_de_implementation.md # cahier des charges original
