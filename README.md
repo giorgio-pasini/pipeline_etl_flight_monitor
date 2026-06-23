@@ -53,9 +53,9 @@ streamlit run dashboard.py                        # KPIs : http://localhost:8501
 pytest -m "not slow and not e2e" -q               # tests
 ```
 
-> **Windows** — l'écriture Parquet exige `winutils.exe`/`hadoop.dll` + `HADOOP_HOME`
-> (`PYSPARK_PYTHON` est réglé automatiquement). Voir
-> [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
+> **Windows** — l'écriture Parquet exige `winutils.exe`/`hadoop.dll` : placez-les dans
+> `%USERPROFILE%\hadoop\bin` et `HADOOP_HOME` est **auto-détecté** (comme `PYSPARK_PYTHON`).
+> Voir [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
 
 ## Documentation
 

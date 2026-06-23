@@ -226,20 +226,23 @@ Plutôt que ~1 appel détaillé **par vol** (des milliers d'appels → 429), on 
 ## 6. Exécution & exploitation
 
 ### Prérequis Windows (Spark/Parquet)
-L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x). Les placer dans
-`C:\Users\<user>\hadoop\bin`, puis lancer via **PowerShell** :
+L'écriture Parquet via Spark exige `winutils.exe` + `hadoop.dll` (Hadoop 3.3.x). **Il suffit de
+les placer dans un dossier `bin\`** parmi les emplacements auto-détectés :
+`%USERPROFILE%\hadoop\bin` (recommandé), `<projet>\vendor\hadoop\bin`, `C:\hadoop\bin` ou
+`C:\winutils\bin`. `create_spark_session` appelle `_ensure_hadoop_home()` qui **trouve winutils
+et pose `HADOOP_HOME` automatiquement** au démarrage — plus besoin de définir la variable à la
+main dans chaque terminal.
 
 ```powershell
-$env:HADOOP_HOME="C:\Users\<user>\hadoop"
-$env:PATH="$env:HADOOP_HOME\bin;$env:PATH"
 # (optionnel) login FR24 pour un quota plus élevé :
 $env:FR24_EMAIL="<email>"; $env:FR24_PASSWORD="<mot_de_passe_FR24>"
 python scripts\run_job.py --with-silver-gold
 ```
 
-`create_spark_session` ajoute automatiquement `spark.driver.extraLibraryPath` vers
-`%HADOOP_HOME%\bin` (chargement de `hadoop.dll`). Sous Linux, aucun de ces prérequis n'est
-nécessaire.
+Si winutils est dans un emplacement non standard, on peut toujours forcer manuellement
+`$env:HADOOP_HOME="<chemin>"` (respecté en priorité). `create_spark_session` ajoute aussi
+`spark.driver.extraLibraryPath` vers `%HADOOP_HOME%\bin` (chargement de `hadoop.dll`). Sous
+Linux, aucun de ces prérequis n'est nécessaire.
 
 ### Commandes principales
 ```bash
@@ -264,6 +267,7 @@ Chemins datalake, rétention, paramètres Spark, API (timeout, `API_MAX_WORKERS_
 ### Troubleshooting
 | Symptôme | Cause / Solution |
 |---|---|
+| `HADOOP_HOME and hadoop.home.dir are unset` (crash Phase 5, écriture Bronze) | winutils introuvable → **auto-détecté** si placé dans un dossier standard (`%USERPROFILE%\hadoop\bin`…). Sinon, installer winutils + définir `HADOOP_HOME` manuellement. |
 | `UnsatisfiedLinkError: NativeIO$Windows.access0` | `hadoop.dll` non chargé → définir `HADOOP_HOME` + PATH (cf. ci-dessus) |
 | « Python worker failed to connect back » | Alias Python Windows → **corrigé automatiquement** : `create_spark_session` force `PYSPARK_PYTHON=sys.executable`. (Surchargeable manuellement si besoin.) |
 | `CANNOT_ACCEPT_OBJECT_IN_TYPE DoubleType … int` | géré : coercion de types dans `flights_to_dicts` |

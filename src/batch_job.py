@@ -81,6 +81,37 @@ def setup_logging(config: DatalakeConfig):
     return logger
 
 
+def _ensure_hadoop_home() -> Optional[str]:
+    """Sous Windows, localiser et poser HADOOP_HOME si absent.
+
+    L'écriture Parquet via Spark exige winutils.exe + hadoop.dll. Si l'utilisateur
+    lance le job depuis un terminal neuf sans avoir défini HADOOP_HOME, le job
+    crashait en Phase 5 avec « HADOOP_HOME and hadoop.home.dir are unset ».
+    On cherche `bin/winutils.exe` dans les emplacements usuels et on pose la
+    variable AVANT le démarrage de la JVM. Retourne le HADOOP_HOME effectif (ou None).
+    """
+    if os.name != "nt":
+        return None  # Linux/Mac : aucun prérequis winutils
+
+    existing = os.environ.get("HADOOP_HOME")
+    if existing and os.path.isfile(os.path.join(existing, "bin", "winutils.exe")):
+        return existing
+
+    # Emplacements candidats (du plus spécifique au plus générique).
+    candidates = [
+        os.path.join(os.path.expanduser("~"), "hadoop"),   # C:\Users\<user>\hadoop
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor", "hadoop"),
+        r"C:\hadoop",
+        r"C:\winutils",
+    ]
+    for home in candidates:
+        if os.path.isfile(os.path.join(home, "bin", "winutils.exe")):
+            os.environ["HADOOP_HOME"] = home
+            os.environ["PATH"] = os.path.join(home, "bin") + os.pathsep + os.environ.get("PATH", "")
+            return home
+    return None
+
+
 def create_spark_session(config: DatalakeConfig) -> SparkSession:
     """Créer et configurer la session Spark."""
 
@@ -91,6 +122,21 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
     # `setdefault` : on respecte une valeur déjà posée par l'utilisateur.
     os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
     os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+
+    # Auto-détection de HADOOP_HOME (winutils) — évite le crash Phase 5 sous
+    # Windows quand le terminal n'a pas la variable. Avertit si introuvable.
+    logger = logging.getLogger(__name__)
+    if os.name == "nt":
+        resolved = _ensure_hadoop_home()
+        if resolved:
+            logger.info(f"HADOOP_HOME = {resolved} (winutils détecté)")
+        else:
+            logger.warning(
+                "HADOOP_HOME introuvable : l'écriture Parquet va échouer. "
+                "Installez winutils.exe + hadoop.dll dans un dossier `bin\\` puis "
+                "définissez HADOOP_HOME (cf. documentation §10), ou placez-le dans "
+                "%USERPROFILE%\\hadoop."
+            )
 
     builder = SparkSession.builder \
         .appName(config.SPARK_APP_NAME) \
