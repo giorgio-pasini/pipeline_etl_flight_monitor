@@ -135,6 +135,31 @@ class TestKpis:
         assert result[0]["origin_iata"] == "CDG"
         assert result[0]["destination_iata"] == "JFK"
 
+    def test_avg_distance_excludes_circular_flights(self, spark_session):
+        """Vol origine == destination (distance 0) exclu du KPI distance moyenne."""
+        ts = datetime(2026, 6, 21, 14, 0, 0)
+        rows = [
+            # vrai trajet EU (origine France) -> distance > 0
+            dict(flight_id="R", extraction_timestamp=ts, callsign="AFR1", airline_icao="AFR",
+                 airline_name="Air France", aircraft_code="A320", on_ground=0, is_valid=True,
+                 origin_iata="CDG", destination_iata="JFK",
+                 origin_airport_country_code="FR", destination_airport_country_code="US",
+                 origin_airport_latitude=49.0, origin_airport_longitude=2.55,
+                 destination_airport_latitude=40.6, destination_airport_longitude=-73.8),
+            # vol circulaire EU (Cork -> Cork, mêmes coords) -> distance 0, doit être exclu
+            dict(flight_id="C", extraction_timestamp=ts, callsign="REV1", airline_icao="EIN",
+                 airline_name="Loiter", aircraft_code="C172", on_ground=0, is_valid=True,
+                 origin_iata="ORK", destination_iata="ORK",
+                 origin_airport_country_code="IE", destination_airport_country_code="IE",
+                 origin_airport_latitude=51.84, origin_airport_longitude=-8.49,
+                 destination_airport_latitude=51.84, destination_airport_longitude=-8.49),
+        ]
+        enriched = clean_and_enrich_bronze(_make_df(spark_session, rows))
+        result = {r["origin_continent"]: r for r in kpi_continental_avg_distance(enriched).collect()}
+        assert "EU" in result
+        assert result["EU"]["flight_count"] == 1        # le vol circulaire est écarté
+        assert result["EU"]["min_distance_km"] > 0      # plus de 0 km parasite
+
     def test_airport_imbalance(self, enriched_df):
         result = kpi_airport_imbalance(enriched_df).collect()
         assert len(result) == 1

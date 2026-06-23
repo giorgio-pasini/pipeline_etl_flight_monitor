@@ -196,7 +196,8 @@ def kpi_longest_flight(df: DataFrame) -> DataFrame:
     return (
         df.filter(
             (col("on_ground") == 0) & (col("is_valid") == True) &
-            col("distance_km").isNotNull()
+            col("distance_km").isNotNull() &
+            (col("origin_iata") != col("destination_iata"))  # exclut les vols circulaires (0 km)
         )
         .orderBy(desc("distance_km"))
         .select("callsign", "airline_icao", "airline_name",
@@ -212,7 +213,8 @@ def kpi_continental_avg_distance(df: DataFrame) -> DataFrame:
         df.filter(
             (col("on_ground") == 0) & (col("is_valid") == True) &
             col("distance_km").isNotNull() &
-            (col("origin_continent") != lit("UNKNOWN"))
+            (col("origin_continent") != lit("UNKNOWN")) &
+            (col("origin_iata") != col("destination_iata"))  # exclut les vols circulaires (0 km)
         )
         .groupBy("origin_continent")
         .agg(

@@ -37,6 +37,11 @@ Task Scheduler) — ce n'est pas du streaming continu.
 6. Par **pays de compagnie**, **top 3** des modèles d'avion en usage.
 7. **(Bonus)** Aéroport au plus grand **écart départs/arrivées**.
 
+> Les **KPI de distance (3 & 4)** ne considèrent que les vols **point-à-point**
+> (`origin_iata != destination_iata`) : les vols circulaires (même aéroport départ/arrivée —
+> patrouille, entraînement, tour de piste) ont une distance grand-cercle nulle et sont écartés de
+> ces agrégats (ils restent comptés dans les autres KPI et en Silver).
+
 ### Architecture
 
 ```
