@@ -1,13 +1,5 @@
+"""Pipeline ETL de trafic aérien — modules de support.
+
+schemas, data_quality, flight_extraction, dimension_loader, transformations,
+silver_gold_loader, reference_data, job_metrics, alerting, datalake_utils, batch_job.
 """
-Pipeline ETL de trafic aérien — Bibliothèques de support.
-
-Modules :
-- schemas : Définitions des StructType Spark pour toutes les couches
-- data_quality : Validation et flagging de la qualité des données
-- transformations : Fonctions de nettoyage et enrichissement (à venir)
-- batch_job : Job Spark Core Batch (orchestré toutes les 2h)
-"""
-
-from . import schemas, data_quality
-
-__version__ = "0.1.0"
