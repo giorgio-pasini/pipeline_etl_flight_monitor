@@ -1,4 +1,4 @@
-# Pipeline ETL — Trafic Aérien Mondial ✈️
+# Pipeline ETL — Trafic Aérien Mondial
 
 Pipeline **ETL batch** (Apache Spark) qui collecte le trafic aérien mondial via l'API
 **FlightRadar24**, l'enrichit dans une architecture **Medallion** (Bronze → Silver → Gold),
@@ -49,9 +49,6 @@ Quatre rôles séparés ; tout communique par un **volume partagé** (`flight_da
 | **Stockage** | volume `flight_datalake` | Medallion Parquet partitionné + `_logs/` (métriques) + `_reference/` (jeu aéroports) |
 | **Visualisation** | dashboard Streamlit | KPIs (Gold) + suivi des runs en direct, lit le même volume |
 
-> En production, le `DockerOperator` se remplace par un `KubernetesPodOperator` (même DAG) — voir
-> [DOCUMENTATION.md §6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
-
 ## Architecture cible (production)
 
 L'implémentation locale (Docker + Airflow) est un **fidèle réduit** de l'architecture de prod
@@ -66,7 +63,7 @@ flowchart LR
     B[("Bronze<br/>brut")]
     S[("Silver<br/>fait + dimensions")]
     G[("Gold<br/>7 KPIs")]
-    CAT["Catalog + moteur SQL<br/>Glue·Athena / BigQuery / Trino"]
+    CAT["Catalog + moteur SQL<br/>Glue·Athena / BigQuery"]
     BI["Dashboard / BI"]
     MON["Monitoring + Alerting"]
     SEC["Secrets manager"]
@@ -83,13 +80,13 @@ flowchart LR
 
 | Brique locale (ce repo) | Cible production |
 |---|---|
-| Image Docker `flight-etl` | Même image, déployée sur **Kubernetes** (EKS/GKE) |
-| Airflow standalone + Postgres | **Airflow managé** (MWAA / Astronomer / Composer) |
+| Image Docker `flight-etl` | Même image, déployée sur **Kubernetes** (GKE) |
+| Airflow standalone + Postgres | **Airflow managé** (Composer) |
 | `DockerOperator` | **`KubernetesPodOperator`** (même DAG, isolation par pod) |
 | Volume `flight_datalake` | **Object storage** S3/GCS — lifecycle policy = rétention |
-| Lecture Parquet pandas (dashboard) | **Catalog + moteur SQL** (Glue+Athena, BigQuery, Trino) + BI |
+| Lecture Parquet pandas (dashboard) | **Catalog + moteur SQL** (Glue+Athena, BigQuery) + BI |
 | `.env` / variables | **Secrets manager** (Vault, AWS/GCP Secrets) |
-| Logs fichiers + `JobMetrics` | **Observabilité** (CloudWatch/Datadog) + alerting |
+| Logs fichiers + `JobMetrics` | **Observabilité** (CloudWatch) + alerting |
 
 Le code métier (extraction, cleaning, KPIs, partitionnement `tech_*`) est **identique** : seul
 l'environnement d'exécution change. Passer à l'échelle = changer `SPARK_MASTER` (cluster) + lire/
@@ -106,16 +103,13 @@ tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécur
 | **Architecture Medallion (Bronze → Silver → Gold)** | Traçabilité, découplage des étapes, **Bronze rejouable** → on recalcule Silver/Gold sans re-collecter l'API |
 | **Parquet + partition temporelle `year/month/day/hour`** | Columnar compressé, schéma fort, **partition pruning** à la lecture, rétention/purge triviales |
 | **Star schema (fait `fact_flights` + dimensions)** | Réutilisabilité, audit, séparation claire fait / dimensions |
-| **Airflow orchestre, n'exécute pas (DockerOperator)** | Image Airflow légère ; le job tourne **isolé** dans un conteneur `flight-etl` → équivalent local fidèle du `KubernetesPodOperator` de prod |
+| **Airflow orchestre, n'exécute pas (DockerOperator)** | Image Airflow légère ; le job tourne **isolé** dans un conteneur `flight-etl` (équivalent local du `KubernetesPodOperator` — voir section *Architecture cible*) |
 | **Postgres + LocalExecutor (vs SQLite)** | Évite le verrou SQLite sous la charge du scheduler ; déploiement minimal (2 conteneurs) mais fiable |
 | **Enrichissement par dimensions *bulk* (vs `get_flight_details` par vol)** | Anti-quota / anti-rate-limit : 1 appel groupé au lieu de N appels (N = nb de vols) |
 | **Jeu aéroports statique OpenFlights (auto-téléchargé/rafraîchi)** | Fiabilité, **zéro quota API**, résultats reproductibles ; TTL de rafraîchissement configurable |
 | **Image Docker unique `flight-etl` (réutilisée par `etl` + `dashboard`)** | Simplicité, une seule build, pas de double construction concurrente du même tag |
 | **Idempotence (overwrite par partition + dédup `flight_id`)** | Re-run de la même heure = remplacement, jamais d'empilement ; **validé par un test de double run** |
-| **Sécurité du socket Docker via `docker-socket-proxy`** | Airflow exécute du code DAG arbitraire : un proxy filtrant (réseau interne, non-root, API minimale) neutralise la faille classique du `docker.sock`. En prod K8s, le `KubernetesPodOperator` remplace ce mécanisme |
-
-> Détail des arbitrages (alternatives écartées, contraintes Windows/Spark, hardening) dans
-> [DOCUMENTATION.md §1](documentation/DOCUMENTATION.md#1-vue-densemble).
+| **Sécurité du socket Docker via `docker-socket-proxy`** | Airflow exécute du code DAG arbitraire : un proxy filtrant (réseau interne, non-root, API minimale) neutralise la faille classique du `docker.sock` — détail en section *Orchestration Airflow* |
 
 ## Structure du projet
 
@@ -143,7 +137,7 @@ tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécur
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
 ├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
 ├── documentation/
-│   └── DOCUMENTATION.md       # 📖 documentation technique complète
+│   └── DOCUMENTATION.md       # documentation technique complète
 ├── plan_de_implementation.md # cahier des charges original
 └── premiere_exploration/     # notes de découverte de l'API
 ```
@@ -165,29 +159,26 @@ docker compose up        # build l'image, lance le batch ETL + le dashboard
 
 ## 🗓️ Orchestration Airflow (toutes les 2 h)
 
-Airflow **orchestre** le pipeline (il ne l'exécute pas en interne) : le DAG déclenche le batch dans
-un conteneur `flight-etl` isolé via **DockerOperator** (équivalent local du `KubernetesPodOperator`
-de prod), toutes les 2 h.
-
-*important* : le moteur docker desktop doit etre actif
+Le DAG planifie le batch (`0 */2 * * *`) dans le conteneur `flight-etl` isolé.
+*Le moteur Docker Desktop **doit** être actif.*
 
 ```bash
 docker compose build                         # image flight-etl
 docker compose --profile airflow up -d       # Airflow (:8080) + dashboard (:8501)
 ```
 
-- **Airflow** : http://localhost:8080 — identifiants **`admin` / `admin`**. DAG
-  `flight_etl_pipeline`, planifié `0 */2 * * *`.
-- **Dashboard** : http://localhost:8501 — visualise chaque run planifié (onglet « Statut
-  d'exécution ») et les KPIs rafraîchis (onglet « KPIs (Gold) »).
+- **Airflow** : http://localhost:8080 — identifiants **`admin` / `admin`** (simplicité en dev ;
+  sinon `docker compose logs airflow | grep -i password`). DAG `flight_etl_pipeline`.
+- **Dashboard** : http://localhost:8501 — chaque run planifié (onglet « Statut d'exécution »)
+  et les KPIs rafraîchis (onglet « KPIs (Gold) »).
+- **Sécurité** : Airflow ne monte pas le socket Docker et tourne en non-root ; il pilote le
+  `DockerOperator` via un proxy filtrant (`docker-socket-proxy`, réseau interne) qui n'expose que
+  l'API strictement nécessaire — neutralisant la faille classique du `docker.sock`.
 - Déclencher un run à la demande :
   `docker compose exec airflow airflow dags trigger flight_etl_pipeline`.
-
-> Airflow = ordonnancement & supervision · dashboard = visualisation · `flight-etl` = exécution.
-
-> **Sécurité** : Airflow ne monte pas le socket Docker et tourne en non-root ; il pilote le
-> `DockerOperator` via un proxy filtrant (`docker-socket-proxy`, réseau interne) qui n'expose que
-> l'API strictement nécessaire. (En prod K8s, le `KubernetesPodOperator` remplace ce mécanisme.)
+- Suivre les logs : `docker compose logs -f airflow` (ou `etl`, `dashboard`).
+- Arrêter (données conservées) : `docker compose --profile airflow down` ·
+  tout réinitialiser (efface les volumes) : `docker compose --profile airflow down -v`.
 
 ## Démarrage rapide (natif, sans Docker)
 
@@ -203,22 +194,6 @@ pytest -m "not slow and not e2e" -q               # tests
 > `%USERPROFILE%\hadoop\bin` et `HADOOP_HOME` est **auto-détecté** (comme `PYSPARK_PYTHON`).
 > Voir [DOCUMENTATION.md § 6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
 > *(Docker évite ce prérequis entièrement.)*
-
-## Commandes utiles (interaction)
-
-| Action | Commande |
-|---|---|
-| Démo : 1 batch + dashboard | `docker compose up` |
-| Mode orchestré : Airflow + dashboard | `docker compose --profile airflow up -d` |
-| Relancer un batch à la main | `docker compose run --rm etl` |
-| Déclencher le DAG immédiatement | `docker compose exec airflow airflow dags trigger flight_etl_pipeline` |
-| Mot de passe admin Airflow | `docker compose logs airflow \| grep -i password` |
-| Suivre les logs d'un service | `docker compose logs -f etl` (ou `airflow`, `dashboard`) |
-| Reconstruire après modif du code | `docker compose build` |
-| Arrêter (données conservées) | `docker compose --profile airflow down` |
-| Tout réinitialiser (efface les volumes) | `docker compose --profile airflow down -v` |
-
-**Interfaces** : dashboard → http://localhost:8501 · Airflow → http://localhost:8080
 
 ## Documentation
 
