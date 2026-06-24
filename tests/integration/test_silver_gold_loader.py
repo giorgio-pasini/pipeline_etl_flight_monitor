@@ -37,6 +37,7 @@ _BRONZE_SCHEMA = StructType([
     StructField("tech_year", StringType()),
     StructField("tech_month", StringType()),
     StructField("tech_day", StringType()),
+    StructField("tech_hour", StringType()),
     # Champs d'enrichissement (appendés en fin de schéma)
     StructField("airline_iata", StringType()),
     StructField("origin_airport_name", StringType()),
@@ -50,13 +51,13 @@ def _bronze_rows(ts):
     """Trois vols valides en l'air : DAL x2 (Boeing, US->US), AFR x1 (Airbus, FR->US)."""
     return [
         ("F1", ts, "DAL1", "DAL", "Delta", "B738", "Boeing 737-800", 0, True, "JFK", "LAX",
-         "US", "US", 40.6, -73.8, 33.9, -118.4, "2026", "2026-06", "2026-06-21",
+         "US", "US", 40.6, -73.8, 33.9, -118.4, "2026", "2026-06", "2026-06-21", "14",
          "DL", "John F Kennedy", "Los Angeles Intl", "United States", "United States"),
         ("F2", ts, "DAL2", "DAL", "Delta", "B739", "Boeing 737-900", 0, True, "ATL", "JFK",
-         "US", "US", 33.6, -84.4, 40.6, -73.8, "2026", "2026-06", "2026-06-21",
+         "US", "US", 33.6, -84.4, 40.6, -73.8, "2026", "2026-06", "2026-06-21", "14",
          "DL", "Atlanta", "John F Kennedy", "United States", "United States"),
         ("F3", ts, "AFR1", "AFR", "Air France", "A320", "Airbus A320", 0, True, "CDG", "JFK",
-         "FR", "US", 49.0, 2.55, 40.6, -73.8, "2026", "2026-06", "2026-06-21",
+         "FR", "US", 49.0, 2.55, 40.6, -73.8, "2026", "2026-06", "2026-06-21", "14",
          "AF", "Paris CDG", "John F Kennedy", "France", "United States"),
     ]
 
@@ -136,7 +137,7 @@ def test_run_full_etl_dedups_across_batches(spark_session, temp_datalake, parque
 
 
 def test_gold_write_is_idempotent(spark_session, temp_datalake, parquet_write_supported):
-    """W1b : re-run le même jour -> Gold remplacé (un seul snapshot), pas empilé."""
+    """W1b : re-run la même heure -> Gold remplacé (un seul snapshot), pas empilé."""
     if not parquet_write_supported:
         pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
 

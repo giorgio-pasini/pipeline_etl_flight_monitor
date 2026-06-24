@@ -248,15 +248,17 @@ class PipelineConfig:
 # Constantes pour partitionnement
 # ============================================================================
 
-# Bronze : jusqu'à l'heure ; Silver & Gold : jusqu'au jour (nomenclature horodatée du requis).
+# Nomenclature horodatée jusqu'à l'HEURE pour les 3 couches : le job tourne 12×/jour, donc les
+# données ET les résultats doivent être retrouvables pour un couple (Date, Heure) — chaque run
+# écrit sa propre partition horaire (idempotente : re-run d'une heure = overwrite de cette heure).
 PARTITION_COLUMNS_BRONZE = ["tech_year", "tech_month", "tech_day", "tech_hour"]
-PARTITION_COLUMNS_SILVER = ["tech_year", "tech_month", "tech_day"]
-PARTITION_COLUMNS_GOLD = ["tech_year", "tech_month", "tech_day"]
+PARTITION_COLUMNS_SILVER = ["tech_year", "tech_month", "tech_day", "tech_hour"]
+PARTITION_COLUMNS_GOLD = ["tech_year", "tech_month", "tech_day", "tech_hour"]
 
 # Exemple de chemin complet :
 # datalake/bronze/flights_raw/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/tech_hour=14/
-# datalake/silver/fact_flights/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/
-# datalake/gold/kpi_airline_volumes/tech_year=2026/tech_month=2026-06/tech_day=2026-06-21/
+# datalake/silver/fact_flights/.../tech_day=2026-06-21/tech_hour=14/
+# datalake/gold/kpi_airline_volumes/.../tech_day=2026-06-21/tech_hour=14/
 
 
 # ============================================================================

@@ -12,7 +12,7 @@ départs/arrivées.
 
 ```
 API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dimensions) ──► GOLD (7 KPIs) ──► Dashboard
-                       partition year/month/day[/hour]
+                       partition year/month/day/hour (3 couches)
 ```
 
 ## Architecture
@@ -52,6 +52,49 @@ Quatre rôles séparés ; tout communique par un **volume partagé** (`flight_da
 > En production, le `DockerOperator` se remplace par un `KubernetesPodOperator` (même DAG) — voir
 > [DOCUMENTATION.md §6](documentation/DOCUMENTATION.md#6-exécution--exploitation).
 
+## Architecture cible (production)
+
+L'implémentation locale (Docker + Airflow) est un **fidèle réduit** de l'architecture de prod
+visée. En cloud, on garde la même chaîne — orchestration / exécution isolée / Medallion / exposition
+— mais portée par des services managés :
+
+```mermaid
+flowchart LR
+    API["API FlightRadar24"]
+    AF["Airflow managé<br/>(MWAA / Astronomer / Composer)"]
+    POD["Job ETL conteneurisé<br/>KubernetesPodOperator<br/>(image flight-etl)"]
+    B[("Bronze<br/>brut")]
+    S[("Silver<br/>fait + dimensions")]
+    G[("Gold<br/>7 KPIs")]
+    CAT["Catalog + moteur SQL<br/>Glue·Athena / BigQuery / Trino"]
+    BI["Dashboard / BI"]
+    MON["Monitoring + Alerting"]
+    SEC["Secrets manager"]
+
+    AF -- "déclenche toutes les 2 h" --> POD
+    API --> POD
+    POD --> B --> S --> G
+    G --> CAT --> BI
+    POD -. "logs / métriques" .-> MON
+    SEC -. "credentials FR24" .-> POD
+```
+
+**Correspondance local ↔ production** (chaque brique a son équivalent prod) :
+
+| Brique locale (ce repo) | Cible production |
+|---|---|
+| Image Docker `flight-etl` | Même image, déployée sur **Kubernetes** (EKS/GKE) |
+| Airflow standalone + Postgres | **Airflow managé** (MWAA / Astronomer / Composer) |
+| `DockerOperator` | **`KubernetesPodOperator`** (même DAG, isolation par pod) |
+| Volume `flight_datalake` | **Object storage** S3/GCS — lifecycle policy = rétention |
+| Lecture Parquet pandas (dashboard) | **Catalog + moteur SQL** (Glue+Athena, BigQuery, Trino) + BI |
+| `.env` / variables | **Secrets manager** (Vault, AWS/GCP Secrets) |
+| Logs fichiers + `JobMetrics` | **Observabilité** (CloudWatch/Datadog) + alerting |
+
+Le code métier (extraction, cleaning, KPIs, partitionnement `tech_*`) est **identique** : seul
+l'environnement d'exécution change. Passer à l'échelle = changer `SPARK_MASTER` (cluster) + lire/
+écrire sur l'object storage — **sans réécriture de la logique**.
+
 ## Structure du projet
 
 ```
@@ -67,13 +110,13 @@ Quatre rôles séparés ; tout communique par un **volume partagé** (`flight_da
 │   ├── job_metrics.py        #   métriques d'exécution (JSON)
 │   ├── alerting.py           #   alertes (fichier/log/webhook)
 │   └── datalake_utils.py     #   partitions, rétention/cleanup
-├── config/                   # datalake_config.py (config centralisée)
+├── config/                   # pipeline_config.py (config centralisée)
 ├── scripts/                  # run_job.py, init_datalake.py, purge_old_partitions.py
 ├── airflow/                  # orchestration : Dockerfile + dags/flight_etl_dag.py (toutes les 2 h)
 ├── Dockerfile                # image flight-etl (JDK 17 + Python 3.11 + deps + code)
 ├── docker-compose.yml        # services etl + dashboard (+ profil airflow : postgres + airflow)
 ├── .dockerignore             # (et .env.example pour surcharges/secrets)
-├── tests/                    # unit / integration / e2e (~95 tests)
+├── tests/                    # unit / integration / e2e (~80 tests)
 ├── data/airports.dat         # référentiel aéroports OpenFlights (auto-téléchargé/rafraîchi)
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
 ├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
