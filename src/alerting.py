@@ -5,13 +5,10 @@ Philosophie (cohérente avec le reste du projet) : pas d'infra lourde.
 - Évalue des règles sur les métriques finalisées d'un batch
 - Journalise chaque alerte (WARNING / ERROR)
 - Persiste les alertes en JSON dans `_logs/alerts/`
-- Optionnel : POST vers un webhook si `ALERT_WEBHOOK_URL` est défini (best-effort)
 """
 
 import json
 import logging
-import os
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -86,17 +83,15 @@ def dispatch_alerts(
     batch_id: str,
     config,
     logger_obj: Optional[logging.Logger] = None,
-    webhook_url: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Journaliser, persister et (optionnellement) notifier les alertes.
+    Journaliser et persister les alertes.
 
     Args:
         alerts: liste d'alertes (sortie d'evaluate_alerts)
         batch_id: identifiant du batch
         config: DatalakeConfig (pour LOG_PATH)
         logger_obj: logger optionnel
-        webhook_url: URL webhook (défaut: env ALERT_WEBHOOK_URL)
 
     Returns:
         Chemin du fichier d'alertes écrit, ou None si aucune alerte
@@ -130,25 +125,7 @@ def dispatch_alerts(
         json.dump(payload, f, indent=2, default=str)
     log.info(f"✓ {len(alerts)} alerte(s) écrite(s) : {out_path}")
 
-    # Webhook optionnel (best-effort)
-    webhook_url = webhook_url or os.getenv("ALERT_WEBHOOK_URL")
-    if webhook_url:
-        _post_webhook(webhook_url, payload, log)
-
     return str(out_path)
-
-
-def _post_webhook(url: str, payload: Dict, log: logging.Logger):
-    """Envoyer les alertes à un webhook (best-effort, ne lève jamais)."""
-    try:
-        data = json.dumps(payload, default=str).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=data, headers={"Content-Type": "application/json"}
-        )
-        urllib.request.urlopen(req, timeout=10)
-        log.info(f"✓ Alertes envoyées au webhook")
-    except Exception as e:
-        log.warning(f"⚠️  Échec d'envoi au webhook : {e}")
 
 
 def check_and_alert(metrics: Dict, config, logger_obj: Optional[logging.Logger] = None) -> List[Dict]:

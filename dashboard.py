@@ -118,8 +118,8 @@ st.markdown("---")
 with st.sidebar:
     st.header("📊 Navigation")
     page = st.radio(
-        "Select view",
-        ["Statut d'exécution", "KPIs (Gold)", "Last Execution", "Execution History"],
+        "Choisir une vue",
+        ["Statut d'exécution", "KPIs (Gold)", "Dernière exécution", "Historique des exécutions"],
         label_visibility="collapsed"
     )
 
@@ -326,50 +326,50 @@ if page == "KPIs (Gold)":
 
 
 # ============================================================================
-# PAGE 1 : Last Execution
+# PAGE 1 : Dernière exécution
 # ============================================================================
 
-if page == "Last Execution":
-    st.header("📍 Last Execution")
+if page == "Dernière exécution":
+    st.header("📍 Dernière exécution")
 
-    # Load latest metrics
+    # Charger les métriques les plus récentes
     all_metrics = JobMetrics.load_all_metrics()
 
     if not all_metrics:
-        st.warning("⚠️ No execution metrics found. Run the pipeline first.")
+        st.warning("⚠️ Aucune métrique d'exécution trouvée. Lancez d'abord le pipeline.")
     else:
         latest = all_metrics[0]
 
-        # Main KPIs
+        # Indicateurs principaux
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             st.metric(
-                "Duration (sec)",
+                "Durée (s)",
                 latest.get("total_duration_seconds", "N/A"),
-                delta="Target: < 600s"
+                delta="Cible : < 600 s"
             )
 
         with col2:
             pct_valid = latest.get("validation", {}).get("pct_valid", 0)
             st.metric(
-                "Data Quality",
+                "Qualité des données",
                 f"{pct_valid}%",
-                delta="Target: >= 70%"
+                delta="Cible : >= 70%"
             )
 
         with col3:
             num_errors = latest.get("num_errors", 0)
             st.metric(
-                "Errors",
+                "Erreurs",
                 num_errors,
-                delta="✅ Healthy" if num_errors == 0 else "⚠️ Check logs"
+                delta="✅ Sain" if num_errors == 0 else "⚠️ Voir les logs"
             )
 
         with col4:
             num_warnings = latest.get("num_warnings", 0)
             st.metric(
-                "Warnings",
+                "Avertissements",
                 num_warnings
             )
 
@@ -382,13 +382,13 @@ if page == "Last Execution":
         with col1:
             extraction = latest.get("extraction", {})
             st.metric(
-                "Flights Extracted",
+                "Vols extraits",
                 extraction.get("rows", 0)
             )
 
         with col2:
             st.metric(
-                "Duration (sec)",
+                "Durée (s)",
                 extraction.get("duration_seconds", 0)
             )
 
@@ -401,67 +401,67 @@ if page == "Last Execution":
         validation = latest.get("validation", {})
 
         with col1:
-            st.metric("Valid Rows", validation.get("valid_rows", 0))
+            st.metric("Lignes valides", validation.get("valid_rows", 0))
 
         with col2:
-            st.metric("Invalid Rows", validation.get("invalid_rows", 0))
+            st.metric("Lignes invalides", validation.get("invalid_rows", 0))
 
         with col3:
-            st.metric("Valid %", f"{validation.get('pct_valid', 0)}%")
+            st.metric("% valides", f"{validation.get('pct_valid', 0)}%")
 
         st.markdown("---")
 
-        # Data Analysis
-        st.subheader("📊 Data Analysis")
+        # Analyse des données
+        st.subheader("📊 Analyse des données")
         col1, col2, col3 = st.columns(3)
 
         analysis = latest.get("analysis", {})
 
         with col1:
-            st.metric("In Flight", analysis.get("in_flight_count", 0))
+            st.metric("En vol", analysis.get("in_flight_count", 0))
 
         with col2:
-            st.metric("On Ground", analysis.get("on_ground_count", 0))
+            st.metric("Au sol", analysis.get("on_ground_count", 0))
 
         with col3:
-            st.metric("In Flight %", f"{analysis.get('pct_in_flight', 0)}%")
+            st.metric("% en vol", f"{analysis.get('pct_in_flight', 0)}%")
 
         st.markdown("---")
 
         # Dimensions
-        st.subheader("📋 Dimensions (Unique Values)")
+        st.subheader("📋 Dimensions (valeurs uniques)")
         col1, col2, col3, col4 = st.columns(4)
 
         dims = latest.get("dimensions", {})
 
         with col1:
-            st.metric("Airlines", dims.get("dim_airlines", {}).get("unique_count", 0))
+            st.metric("Compagnies", dims.get("dim_airlines", {}).get("unique_count", 0))
 
         with col2:
-            st.metric("Airports", dims.get("dim_airports", {}).get("unique_count", 0))
+            st.metric("Aéroports", dims.get("dim_airports", {}).get("unique_count", 0))
 
         with col3:
-            st.metric("Aircraft Models", dims.get("dim_aircraft_models", {}).get("unique_count", 0))
+            st.metric("Modèles d'avion", dims.get("dim_aircraft_models", {}).get("unique_count", 0))
 
         with col4:
-            st.metric("Countries", dims.get("dim_countries_continents", {}).get("unique_count", 0))
+            st.metric("Pays", dims.get("dim_countries_continents", {}).get("unique_count", 0))
 
         st.markdown("---")
 
-        # Gold/KPIs
+        # Gold / KPIs
         st.subheader("🎯 Gold (KPIs)")
         col1, col2 = st.columns(2)
 
         gold = latest.get("gold", {})
 
         with col1:
-            st.metric("KPIs Computed", gold.get("kpis_computed", 0))
+            st.metric("KPIs calculés", gold.get("kpis_computed", 0))
 
         with col2:
-            st.metric("Duration (sec)", gold.get("duration_seconds", 0))
+            st.metric("Durée (s)", gold.get("duration_seconds", 0))
 
-        # KPI results
-        st.write("**KPI Results (rows):**")
+        # Résultats des KPIs
+        st.write("**Résultats des KPIs (lignes) :**")
         kpi_cols = st.columns(3)
         kpi_names = [
             "kpi_airline_volumes",
@@ -480,103 +480,103 @@ if page == "Last Execution":
 
         st.markdown("---")
 
-        # Errors & Warnings
+        # Erreurs & avertissements
         errors = latest.get("errors", [])
         warnings = latest.get("warnings", [])
 
         if errors:
-            st.subheader("❌ Errors")
+            st.subheader("❌ Erreurs")
             for error in errors:
                 with st.expander(f"{error['type']} ({error.get('phase', 'N/A')})"):
-                    st.write(f"**Message:** {error['message']}")
-                    st.write(f"**Time:** {error['timestamp']}")
+                    st.write(f"**Message :** {error['message']}")
+                    st.write(f"**Heure :** {error['timestamp']}")
 
         if warnings:
-            st.subheader("⚠️ Warnings")
+            st.subheader("⚠️ Avertissements")
             for warning in warnings:
                 with st.expander(f"{warning['type']}"):
-                    st.write(f"**Message:** {warning['message']}")
-                    st.write(f"**Time:** {warning['timestamp']}")
+                    st.write(f"**Message :** {warning['message']}")
+                    st.write(f"**Heure :** {warning['timestamp']}")
 
         st.markdown("---")
 
-        # Metadata
-        st.subheader("ℹ️ Metadata")
+        # Métadonnées
+        st.subheader("ℹ️ Métadonnées")
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.write(f"**Batch ID:** {latest.get('batch_id')}")
+            st.write(f"**Batch ID :** {latest.get('batch_id')}")
 
         with col2:
-            st.write(f"**Status:** {latest.get('status')}")
+            st.write(f"**Statut :** {latest.get('status')}")
 
         with col3:
-            st.write(f"**Finished:** {latest.get('end_time')}")
+            st.write(f"**Terminé :** {latest.get('end_time')}")
 
 
 # ============================================================================
-# PAGE 2 : Execution History
+# PAGE 2 : Historique des exécutions
 # ============================================================================
 
-elif page == "Execution History":
-    st.header("📜 Execution History")
+elif page == "Historique des exécutions":
+    st.header("📜 Historique des exécutions")
 
     all_metrics = JobMetrics.load_all_metrics()
 
     if not all_metrics:
-        st.info("No execution history available.")
+        st.info("Aucun historique d'exécution disponible.")
     else:
-        # Create dataframe
+        # Construire le dataframe
         data = []
         for m in all_metrics:
             dims = m.get("dimensions", {})
             analysis = m.get("analysis", {})
             data.append({
                 "Batch ID": m.get("batch_id"),
-                "Status": m.get("status"),
-                "Duration (sec)": m.get("total_duration_seconds"),
-                "Flights": m.get("extraction", {}).get("rows", 0),
-                "Valid %": m.get("validation", {}).get("pct_valid", 0),
-                "In Flight %": analysis.get("pct_in_flight", 0),
-                "Airlines": dims.get("dim_airlines", {}).get("unique_count", 0),
-                "Airports": dims.get("dim_airports", {}).get("unique_count", 0),
-                "Errors": m.get("num_errors", 0),
-                "Warnings": m.get("num_warnings", 0),
-                "Time": m.get("end_time"),
+                "Statut": m.get("status"),
+                "Durée (s)": m.get("total_duration_seconds"),
+                "Vols": m.get("extraction", {}).get("rows", 0),
+                "% valides": m.get("validation", {}).get("pct_valid", 0),
+                "% en vol": analysis.get("pct_in_flight", 0),
+                "Compagnies": dims.get("dim_airlines", {}).get("unique_count", 0),
+                "Aéroports": dims.get("dim_airports", {}).get("unique_count", 0),
+                "Erreurs": m.get("num_errors", 0),
+                "Avertissements": m.get("num_warnings", 0),
+                "Heure": m.get("end_time"),
             })
 
         df = pd.DataFrame(data)
 
-        # Display table
+        # Afficher le tableau
         st.dataframe(
             df,
             use_container_width=True,
             column_config={
-                "Status": st.column_config.TextColumn(width="small"),
-                "Duration (sec)": st.column_config.NumberColumn(width="small"),
-                "Valid %": st.column_config.NumberColumn(width="small"),
-                "Errors": st.column_config.NumberColumn(width="small"),
-                "Warnings": st.column_config.NumberColumn(width="small"),
+                "Statut": st.column_config.TextColumn(width="small"),
+                "Durée (s)": st.column_config.NumberColumn(width="small"),
+                "% valides": st.column_config.NumberColumn(width="small"),
+                "Erreurs": st.column_config.NumberColumn(width="small"),
+                "Avertissements": st.column_config.NumberColumn(width="small"),
             }
         )
 
-        # Charts
+        # Graphiques
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Duration Trend")
-            st.line_chart(df.set_index("Batch ID")["Duration (sec)"])
+            st.subheader("Tendance de la durée")
+            st.line_chart(df.set_index("Batch ID")["Durée (s)"])
 
         with col2:
-            st.subheader("Data Quality Trend")
-            st.line_chart(df.set_index("Batch ID")["Valid %"])
+            st.subheader("Tendance de la qualité des données")
+            st.line_chart(df.set_index("Batch ID")["% valides"])
 
-        # Download
+        # Téléchargement
         csv = df.to_csv(index=False)
         st.download_button(
-            label="📥 Download as CSV",
+            label="📥 Télécharger en CSV",
             data=csv,
-            file_name=f"execution_history_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"historique_executions_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
 

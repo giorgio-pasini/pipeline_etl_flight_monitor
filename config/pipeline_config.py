@@ -151,9 +151,6 @@ class PipelineConfig:
     # Seuil d'alerte : si % de vols valides < ce seuil, générer une alerte
     ALERT_THRESHOLD_PCT_VALID = 70
 
-    # Webhook optionnel pour notifier les alertes (Slack/Teams/etc.). Vide = désactivé.
-    ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
-
     # Sauvegarder les rapports de qualité JSON ?
     SAVE_QUALITY_REPORTS = True
 
