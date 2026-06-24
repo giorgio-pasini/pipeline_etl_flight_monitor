@@ -9,14 +9,6 @@ from tests.conftest import make_mock_flight as _make_mock_flight
 class TestFlightExtractor:
     """Tests pour la classe FlightExtractor."""
 
-    def test_extractor_initialization(self):
-        """L'extracteur doit être initialisé avec des paramètres par défaut."""
-        with patch('src.flight_extraction.FlightRadar24API'):
-            extractor = FlightExtractor(timeout_seconds=30, max_workers=8)
-
-            assert extractor.timeout_seconds == 30
-            assert extractor.max_workers == 8
-
     def test_flights_to_dicts_conversion(self):
         """Convertir Flight objects en dicts plats."""
         with patch('src.flight_extraction.FlightRadar24API'):
@@ -68,26 +60,5 @@ class TestFlightExtractor:
             df = extract_flights_batch(spark_session, config)
 
             assert df is not None
-            assert df.count() >= 0  # Peut être 0 ou plus selon le mock
-
-    def test_empty_flights_list(self, spark_session):
-        """Tester avec une liste vide de vols."""
-        with patch('src.flight_extraction.FlightRadar24API') as mock_api_class:
-            mock_api = Mock()
-            mock_api_class.return_value = mock_api
-            mock_api.get_flights.return_value = []
-
-            from src.flight_extraction import extract_flights_batch
-
-            config = {
-                "zones": ["global"],
-                "enrich": False,
-                "timeout": 30,
-                "max_workers": 8
-            }
-
-            df = extract_flights_batch(spark_session, config)
-
-            assert df is not None
-            # Une liste vide doit produire un DataFrame vide
-            assert df.count() == 0 or df.count() >= 0
+            assert df.count() == 1  # le vol mocké est bien extrait
+            assert df.collect()[0]["flight_id"] == "BAW123"

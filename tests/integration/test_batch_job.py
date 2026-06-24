@@ -12,15 +12,6 @@ from tests.conftest import make_mock_flight
 class TestBatchJobIntegration:
     """Tests d'intégration pour le batch job."""
 
-    def test_spark_session_creation(self):
-        """Créer une session Spark avec la configuration."""
-        spark = create_spark_session(DatalakeConfig)
-
-        assert spark is not None
-        assert spark.sparkContext is not None
-
-        spark.stop()
-
     def test_batch_job_with_mock_api(self, spark_session, temp_datalake, parquet_write_supported):
         """Tester le batch job complet avec API mockée."""
         if not parquet_write_supported:
@@ -75,37 +66,8 @@ class TestBatchJobIntegration:
                 zones=["global"]
             )
 
-            # Avec une API vide, on doit continuer (pas crasher)
-            assert isinstance(success, bool)
-
-    def test_batch_job_logging(self, spark_session, temp_datalake, tmp_path):
-        """Tester que le batch crée des logs."""
-        logger = logging.getLogger("test_batch")
-
-        # Créer un handler pour capturer les logs
-        log_file = tmp_path / "test.log"
-        handler = logging.FileHandler(log_file)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-
-        with patch('src.flight_extraction.FlightRadar24API') as mock_api_class:
-            mock_api = Mock()
-            mock_api_class.return_value = mock_api
-            mock_api.get_flights.return_value = []
-
-            from src.batch_job import run_batch
-
-            success = run_batch(
-                spark_session,
-                DatalakeConfig,
-                logger,
-                zones=["global"]
-            )
-
-            # Les logs doivent exister ou la fonction doit terminer sans erreur
-            assert isinstance(success, bool)
-
-        logger.removeHandler(handler)
+            # Extraction vide -> le batch échoue proprement (« Aucun vol collecté »), sans crasher
+            assert success is False
 
 
 class TestBatchJobFaultTolerance:

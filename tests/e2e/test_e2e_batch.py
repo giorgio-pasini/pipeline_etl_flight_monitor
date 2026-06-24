@@ -15,81 +15,19 @@ class TestE2EBatchJobWithRealAPI:
 
     @pytest.mark.slow
     def test_batch_job_full_cycle(self, temp_datalake):
-        """Tester le cycle complet : extraction → validation → Bronze write."""
+        """Smoke API réel : extraction → validation → Bronze. Vérifie le contrat
+        de l'API FlightRadar24 (un changement côté API ferait échouer ce test)."""
         spark = create_spark_session(DatalakeConfig)
         logger = logging.getLogger(__name__)
 
         try:
-            # Lancer le batch
-            success = run_batch(
-                spark,
-                DatalakeConfig,
-                logger,
-                zones=["global"]
-            )
+            success = run_batch(spark, DatalakeConfig, logger, zones=["global"])
 
-            # Doit réussir ou échouer gracieusement
-            assert isinstance(success, bool)
-
-            # Si succès, vérifier que des données ont été écrites
-            if success:
-                bronze_path = DatalakeConfig.get_bronze_flights_path()
-                assert Path(bronze_path).exists()
-
-        finally:
-            spark.stop()
-
-    @pytest.mark.slow
-    def test_batch_job_creates_quality_reports(self, temp_datalake):
-        """Tester que le batch crée des rapports de qualité."""
-        spark = create_spark_session(DatalakeConfig)
-        logger = logging.getLogger(__name__)
-
-        try:
-            success = run_batch(
-                spark,
-                DatalakeConfig,
-                logger,
-                zones=["global"]
-            )
-
-            # Si succès, vérifier les rapports
-            if success:
-                logs_path = Path(DatalakeConfig.DATALAKE_ROOT) / "_logs"
-                # Les logs ou rapports doivent avoir été créés
-                # (structure dépend de l'implémentation)
-                assert isinstance(success, bool)
-
-        finally:
-            spark.stop()
-
-    @pytest.mark.slow
-    def test_batch_job_idempotent(self, temp_datalake):
-        """Tester que le batch est idempotent (peut être rejouée)."""
-        spark = create_spark_session(DatalakeConfig)
-        logger = logging.getLogger(__name__)
-
-        try:
-            # Premier run
-            success1 = run_batch(
-                spark,
-                DatalakeConfig,
-                logger,
-                zones=["global"]
-            )
-
-            # Deuxième run (même données)
-            success2 = run_batch(
-                spark,
-                DatalakeConfig,
-                logger,
-                zones=["global"]
-            )
-
-            # Les deux doivent avoir le même résultat (idempotent)
-            assert isinstance(success1, bool)
-            assert isinstance(success2, bool)
-            # Pas d'assertion stricte car l'API peut retourner des données différentes
+            # L'API réelle doit renvoyer des vols -> batch réussi + Bronze écrit + ≥ 1 vol
+            assert success is True
+            bronze_path = DatalakeConfig.get_bronze_flights_path()
+            assert Path(bronze_path).exists()
+            assert spark.read.parquet(bronze_path).count() >= 1
 
         finally:
             spark.stop()

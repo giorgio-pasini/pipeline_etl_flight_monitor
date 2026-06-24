@@ -9,11 +9,6 @@ from src.schemas import schema_flights_raw
 class TestFlightsRawSchema:
     """Tests pour le schéma Bronze flights_raw."""
 
-    def test_schema_exists(self):
-        """Le schéma flights_raw doit exister."""
-        assert schema_flights_raw is not None
-        assert isinstance(schema_flights_raw, StructType)
-
     def test_schema_has_required_columns(self):
         """Le schéma doit contenir les colonnes obligatoires."""
         required_cols = [
