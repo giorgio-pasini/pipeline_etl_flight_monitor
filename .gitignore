@@ -2,6 +2,7 @@
 #    (bronze/silver/gold, _logs, _reference/airports.dat téléchargé…)
 datalake/
 .datalake/
+data/
 
 # ── Secrets / surcharges locales  (garder .env.example) ─────
 .env

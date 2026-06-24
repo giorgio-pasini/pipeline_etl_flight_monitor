@@ -331,6 +331,13 @@ def run_batch(
                 for kpi_name, kpi_df in etl_result['gold_kpis'].items():
                     metrics.set_kpi_result(kpi_name, kpi_df.count())
 
+                # dim_countries_continents n'existe qu'après l'enrichissement Silver
+                # (colonnes pays absentes du df en Phase 3) → on l'enregistre ici.
+                metrics.set_dimension(
+                    "dim_countries_continents",
+                    etl_result.get("dim_counts", {}).get("dim_countries_continents", 0),
+                )
+
                 logger.info(f"✓ Silver : {etl_result['silver'].count()} rows")
                 logger.info(f"✓ Gold : {len(etl_result['gold_kpis'])} KPIs calculés")
 

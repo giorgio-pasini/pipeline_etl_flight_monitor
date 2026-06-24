@@ -105,7 +105,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("🚀 Pipeline ETL Dashboard")
+_title_col, _refresh_col = st.columns([5, 1])
+_title_col.title("🚀 Pipeline ETL Dashboard")
+if _refresh_col.button("🔄 Rafraîchir", use_container_width=True, key="refresh_top"):
+    st.rerun()
 st.markdown("---")
 
 # ============================================================================
@@ -208,7 +211,7 @@ if page == "Statut d'exécution":
         # --- Rafraîchissement ---
         st.markdown("---")
         cols = st.columns([1, 3])
-        if cols[0].button("🔄 Rafraîchir"):
+        if cols[0].button("🔄 Rafraîchir", key="refresh_status"):
             st.rerun()
         if run["state"] == "running":
             auto = cols[1].checkbox("Auto-refresh (5 s)", value=True)

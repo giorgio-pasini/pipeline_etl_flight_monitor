@@ -109,6 +109,10 @@ def test_run_full_etl_end_to_end(spark_session, temp_datalake, parquet_write_sup
     dim_countries = spark_session.read.parquet(PipelineConfig.get_silver_dim_path("dim_countries_continents"))
     assert {r["country_code"] for r in dim_countries.collect()} == {"US", "FR"}
 
+    # Cardinalités exposées pour les métriques dashboard (cf. bug « Countries = 0 ») :
+    # dim_countries_continents doit être compté, pas laissé à 0.
+    assert result["dim_counts"]["dim_countries_continents"] == 2
+
     # Conformité au requis horodaté : Silver ET Gold partitionnés jusqu'à tech_day
     from pathlib import Path
     silver_days = list(Path(PipelineConfig.SILVER_PATH, "fact_flights").glob("**/tech_day=*"))

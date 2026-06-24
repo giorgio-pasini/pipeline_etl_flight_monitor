@@ -141,7 +141,7 @@ tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécur
 ├── docker-compose.yml        # services etl + dashboard (+ profil airflow : postgres + airflow)
 ├── .dockerignore             # (et .env.example pour surcharges/secrets)
 ├── tests/                    # unit / integration / e2e (~80 tests)
-├── data/airports.dat         # référentiel aéroports OpenFlights (auto-téléchargé/rafraîchi)
+├── data/airports.dat         # référentiel aéroports OpenFlights (téléchargé au 1er run, non commité)
 ├── datalake/                 # bronze/ silver/ gold/ _logs/  (généré)
 ├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
 ├── documentation/

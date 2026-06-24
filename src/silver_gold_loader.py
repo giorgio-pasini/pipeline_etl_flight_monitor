@@ -43,6 +43,7 @@ class SilverGoldLoader:
         """
         self.spark = spark
         self.config = datalake_config
+        self.dim_counts = {}  # cardinalité des dimensions construites (rempli par _load_dimensions)
 
     def load_silver(self, bronze_df: DataFrame, dim_airports=None, dim_airlines=None) -> DataFrame:
         """
@@ -99,10 +100,14 @@ class SilverGoldLoader:
         if dim_airlines is None:
             dims["dim_airlines"] = build_dim_airlines(silver_df)
 
+        counts = {}
         for name, dim_df in dims.items():
             path = self.config.get_silver_dim_path(name)
             dim_df.write.mode("overwrite").parquet(path)
-            logger.info(f"  ✓ {name}: {dim_df.count()} lignes -> {path}")
+            n = dim_df.count()
+            counts[name] = n
+            logger.info(f"  ✓ {name}: {n} lignes -> {path}")
+        self.dim_counts = counts
 
     def load_gold(self, silver_df: DataFrame) -> dict:
         """
@@ -220,4 +225,5 @@ class SilverGoldLoader:
         return {
             'silver': silver_df,
             'gold_kpis': gold_kpis,
+            'dim_counts': self.dim_counts,
         }
