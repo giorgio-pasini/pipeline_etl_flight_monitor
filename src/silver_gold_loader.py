@@ -7,7 +7,7 @@ Gold : Tables KPI agrégées
 
 import logging
 from pyspark.sql import SparkSession, DataFrame
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config.datalake_config import PARTITION_COLUMNS_SILVER
 
@@ -69,9 +69,11 @@ class SilverGoldLoader:
         silver_df = clean_and_enrich_bronze(fact)
         silver_df = silver_df.cache()  # réutilisé par fact + dimensions
 
-        # Écriture du fact en Silver (partitionné jusqu'au jour : tech_year/month/day)
+        # Écriture du fact en Silver (partitionné jusqu'au jour : tech_year/month/day).
+        # overwrite + partitionOverwriteMode=dynamic : seule la partition tech_day du batch
+        # est remplacée (idempotent au re-run ; l'historique des autres jours est conservé).
         silver_path = self.config.SILVER_PATH + "/fact_flights"
-        silver_df.write.mode("append").partitionBy(*PARTITION_COLUMNS_SILVER).parquet(silver_path)
+        silver_df.write.mode("overwrite").partitionBy(*PARTITION_COLUMNS_SILVER).parquet(silver_path)
         logger.info(f"✓ Silver fact_flights loaded: {silver_path}")
 
         # Dimensions : bulk si fournies (référentiels complets), sinon dérivées du fact
@@ -80,17 +82,23 @@ class SilverGoldLoader:
         return silver_df
 
     def _load_dimensions(self, silver_df: DataFrame, dim_airports=None, dim_airlines=None) -> None:
-        """Écrire les 4 tables de dimensions dans Silver.
+        """Écrire les tables de dimensions dérivées du fact dans Silver.
 
-        dim_airports / dim_airlines : référentiels bulk si fournis, sinon dérivés du fact.
         dim_aircraft_models / dim_countries_continents : toujours dérivés du fact.
+        dim_airports / dim_airlines : si **bulk** (fournis), ils sont DÉJÀ persistés en `_current`
+        par `dimension_loader` → on ne les réécrit pas (réécrire un DataFrame lu depuis `_current`
+        vers `_current` ferait échouer Spark : lecture + overwrite du même chemin). On ne (re)génère
+        que s'ils ont été dérivés du fact (fallback, dims non fournies).
         """
         dims = {
-            "dim_airports": dim_airports if dim_airports is not None else build_dim_airports(silver_df),
-            "dim_airlines": dim_airlines if dim_airlines is not None else build_dim_airlines(silver_df),
             "dim_aircraft_models": build_dim_aircraft_models(silver_df),
             "dim_countries_continents": build_dim_countries_continents(silver_df),
         }
+        if dim_airports is None:
+            dims["dim_airports"] = build_dim_airports(silver_df)
+        if dim_airlines is None:
+            dims["dim_airlines"] = build_dim_airlines(silver_df)
+
         for name, dim_df in dims.items():
             path = self.config.get_silver_dim_path(name)
             dim_df.write.mode("overwrite").parquet(path)
@@ -111,7 +119,7 @@ class SilverGoldLoader:
         logger.info("Loading Gold layer (7 KPIs)...")
 
         kpis = {}
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)  # partitions tech_* en UTC (cohérent avec les données)
         tech_year = timestamp.strftime("%Y")
         tech_month = timestamp.strftime("%Y-%m")
         tech_day = timestamp.strftime("%Y-%m-%d")
@@ -171,16 +179,20 @@ class SilverGoldLoader:
             f"/tech_year={tech_year}/tech_month={tech_month}/tech_day={tech_day}"
         )
 
-        df.write.mode("append").parquet(gold_path)
+        # overwrite (et non append) : un seul snapshot par jour ; re-run = remplacement.
+        df.write.mode("overwrite").parquet(gold_path)
 
         logger.info(f"    ✓ {table_name} written to {gold_path}")
 
-    def run_full_etl(self, bronze_path: str, dim_airports=None, dim_airlines=None) -> dict:
+    def run_full_etl(self, bronze_path: str = None, *, bronze_df: DataFrame = None,
+                     dim_airports=None, dim_airlines=None) -> dict:
         """
         Exécuter le pipeline complet Bronze → Silver → Gold.
 
         Args:
-            bronze_path: Chemin vers les données Bronze
+            bronze_path: Chemin vers les données Bronze (lu si `bronze_df` absent).
+            bronze_df: DataFrame Bronze **du batch courant** (snapshot). Fourni par le job
+                pour ne traiter QUE le batch courant (et non tout l'historique Bronze).
             dim_airports, dim_airlines: dimensions de référence bulk (optionnelles)
 
         Returns:
@@ -190,10 +202,11 @@ class SilverGoldLoader:
         logger.info("Starting full ETL (Bronze → Silver → Gold)")
         logger.info("=" * 70)
 
-        # Lire Bronze
-        logger.info(f"Reading Bronze from {bronze_path}...")
-        bronze_df = self.spark.read.parquet(bronze_path)
-        logger.info(f"✓ {bronze_df.count()} rows read from Bronze")
+        # Source : DF du batch courant si fourni (snapshot), sinon relecture du chemin Bronze.
+        if bronze_df is None:
+            logger.info(f"Reading Bronze from {bronze_path}...")
+            bronze_df = self.spark.read.parquet(bronze_path)
+        logger.info(f"✓ {bronze_df.count()} rows à traiter (snapshot du batch)")
 
         # Load Silver (enrichi par jointure avec les dimensions si fournies)
         silver_df = self.load_silver(bronze_df, dim_airports, dim_airlines)

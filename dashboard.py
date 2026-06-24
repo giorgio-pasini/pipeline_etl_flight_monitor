@@ -90,6 +90,10 @@ def _read_kpi(name: str):
         return None
     if df is None or df.empty:
         return None
+    # Ne garder que le dernier snapshot calculé (la table peut contenir un snapshot par jour ;
+    # `computed_at` identifie le calcul le plus récent).
+    if "computed_at" in df.columns:
+        df = df[df["computed_at"] == df["computed_at"].max()]
     # Colonnes techniques retirées de l'affichage
     return df.drop(columns=[c for c in ("computed_at", "tech_year", "tech_month", "tech_day") if c in df.columns])
 

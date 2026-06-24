@@ -133,3 +133,26 @@ def test_run_full_etl_dedups_across_batches(spark_session, temp_datalake, parque
 
     # 6 lignes Bronze mais 3 flight_id uniques -> dedup garde le plus récent
     assert result["silver"].count() == 3
+
+
+def test_gold_write_is_idempotent(spark_session, temp_datalake, parquet_write_supported):
+    """W1b : re-run le même jour -> Gold remplacé (un seul snapshot), pas empilé."""
+    if not parquet_write_supported:
+        pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
+
+    bronze_path = DatalakeConfig.get_bronze_flights_path()
+    _write_bronze(spark_session, _bronze_rows(datetime(2026, 6, 21, 14, 0, 0)), bronze_path)
+
+    loader = SilverGoldLoader(spark_session, DatalakeConfig)
+    loader.run_full_etl(bronze_df=spark_session.read.parquet(bronze_path))
+    loader.run_full_etl(bronze_df=spark_session.read.parquet(bronze_path))  # 2e run, même jour
+
+    # kpi_airline_volumes = 1 ligne métier ; après 2 runs overwrite -> toujours 1 (pas 2)
+    gold = spark_session.read.parquet(f"{DatalakeConfig.GOLD_PATH}/kpi_airline_volumes")
+    assert gold.count() == 1
+    assert gold.select("computed_at").distinct().count() == 1
+
+
+def test_spark_session_timezone_is_utc(spark_session):
+    """W4 : la session de test reflète la prod (timeZone UTC)."""
+    assert spark_session.conf.get("spark.sql.session.timeZone") == "UTC"

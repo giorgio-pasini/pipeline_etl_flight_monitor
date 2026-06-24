@@ -62,6 +62,8 @@ def spark_session():
         .config("spark.sql.shuffle.partitions", "4") \
         .config("spark.driver.memory", "1g") \
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false") \
+        .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
+        .config("spark.sql.session.timeZone", "UTC") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")

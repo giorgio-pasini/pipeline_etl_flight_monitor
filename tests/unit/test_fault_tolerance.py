@@ -6,6 +6,23 @@ import pytest
 
 from src.flight_extraction import retry_with_backoff
 from src import alerting
+from src.job_metrics import JobMetrics
+
+
+class TestMetricsStatus:
+    """W2 : une erreur (ex. échec Silver/Gold) marque le batch `failed`."""
+
+    def test_status_failed_on_error(self):
+        m = JobMetrics(batch_id="t")
+        m.add_error("silver_gold_error", "boom", phase="silver_gold")
+        out = m.finalize()
+        assert out["status"] == "failed"
+        assert out["num_errors"] == 1
+
+    def test_status_success_without_error(self):
+        out = JobMetrics(batch_id="t").finalize()
+        assert out["status"] == "success"
+        assert out["num_errors"] == 0
 
 
 # ---------------------------------------------------------------------------

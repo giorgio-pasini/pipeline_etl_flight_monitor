@@ -33,7 +33,7 @@ import sys
 import argparse
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pyspark.sql import SparkSession
@@ -146,6 +146,8 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
         .config("spark.sql.shuffle.partitions", config.SPARK_SHUFFLE_PARTITIONS) \
         .config("spark.sql.adaptive.enabled", config.SPARK_ADAPTIVE_EXECUTION_ENABLED) \
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false") \
+        .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
+        .config("spark.sql.session.timeZone", "UTC") \
         .config("spark.driver.memory", config.SPARK_DRIVER_MEMORY)
 
     # Windows : exposer hadoop.dll (NativeIO) à la JVM via java.library.path.
@@ -290,7 +292,7 @@ def run_batch(
         # Phase 4 : Partitionnement temporel (valeurs correctes via get_partition_values)
         logger.info("Phase 4 : Partitionnement temporel...")
 
-        partition_values = get_partition_values(datetime.now())
+        partition_values = get_partition_values(datetime.now(timezone.utc))
         for col_name, val in partition_values.items():
             df = df.withColumn(col_name, lit(val))
 
@@ -316,9 +318,11 @@ def run_batch(
                 from src.dimension_loader import load_all_dimensions
                 dims = load_all_dimensions(spark, config)
 
+                # On traite le DF du batch COURANT (snapshot), pas tout le Bronze accumulé :
+                # les KPIs « en cours » doivent refléter la dernière extraction, pas l'historique.
                 loader = SilverGoldLoader(spark, config)
                 etl_result = loader.run_full_etl(
-                    bronze_path,
+                    bronze_df=df,
                     dim_airports=dims.get("dim_airports"),
                     dim_airlines=dims.get("dim_airlines"),
                 )
@@ -331,21 +335,30 @@ def run_batch(
                 logger.info(f"✓ Gold : {len(etl_result['gold_kpis'])} KPIs calculés")
 
             except Exception as e:
-                logger.warning(f"⚠️  Silver/Gold skipped due to error: {e}")
-                metrics.add_warning("silver_gold_error", str(e))
+                # Échec Silver/Gold = vraie erreur (le batch sera marqué failed) — pas un
+                # simple warning : sinon Airflow/check_outcome ne le détecterait pas.
+                logger.error(f"❌ Silver/Gold en échec : {e}", exc_info=True)
+                metrics.add_error("silver_gold_error", str(e), phase="silver_gold")
 
         # Phase 7 : Métriques + alerting
         _finalize_and_alert(metrics, config, logger)
 
+        # Statut dérivé des métriques : un échec Silver/Gold (Phase 6) marque le batch failed
+        # -> code de sortie ≠ 0 -> la tâche Airflow échoue (pas seulement check_outcome).
+        ok = metrics.metrics.get("num_errors", 0) == 0
+
         # Résumé final
         logger.info("="*70)
-        logger.info("✅ Batch complété avec succès")
+        if ok:
+            logger.info("✅ Batch complété avec succès")
+        else:
+            logger.error(f"❌ Batch terminé avec {metrics.metrics['num_errors']} erreur(s)")
         logger.info(f"   Vols : {num_flights}")
         logger.info(f"   Vols valides : {valid_rows} ({pct_valid:.1f}%)")
         logger.info(f"   Chemin Bronze : {bronze_path}")
         logger.info("="*70)
 
-        return True
+        return ok
 
     except Exception as e:
         logger.error(f"❌ Erreur lors du batch : {e}", exc_info=True)

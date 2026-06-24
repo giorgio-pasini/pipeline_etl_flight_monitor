@@ -137,7 +137,7 @@ class JobMetrics:
         self.metrics["total_duration_seconds"] = round(
             (end_time - self.start_time).total_seconds(), 2
         )
-        self.metrics["status"] = "success" if not self.metrics["errors"] else "warning"
+        self.metrics["status"] = "success" if not self.metrics["errors"] else "failed"
         self.metrics["num_errors"] = len(self.metrics["errors"])
         self.metrics["num_warnings"] = len(self.metrics["warnings"])
 

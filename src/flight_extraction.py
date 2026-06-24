@@ -13,7 +13,7 @@ Fournit les fonctions pour :
 import logging
 import time
 from typing import List, Optional, Dict, Any, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -267,7 +267,7 @@ class FlightExtractor:
             batch_id = str(uuid.uuid4())[:8]
 
         dicts = []
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None)  # UTC (naïf, pour Spark)
 
         for flight in flights:
             try:
