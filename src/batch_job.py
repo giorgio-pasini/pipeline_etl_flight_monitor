@@ -211,7 +211,6 @@ def run_batch(
 
         extraction_config = {
             "zones": zones or config.COLLECTION_ZONES,
-            "enrich": config.API_ENRICH_DETAILS,  # off : l'enrichissement vient des dims bulk
             "timeout": config.API_TIMEOUT_SECONDS,
             "max_workers": config.API_MAX_WORKERS_PARALLEL,
             "max_retries": config.API_MAX_RETRIES,

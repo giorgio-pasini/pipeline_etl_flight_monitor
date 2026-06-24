@@ -36,19 +36,10 @@ class PipelineConfig:
     GOLD_PATH = f"{DATALAKE_ROOT}/gold"
 
     # ============================================================================
-    # Rétention des données (en jours)
-    # ============================================================================
-
-    BRONZE_RETENTION_DAYS = int(os.getenv("BRONZE_RETENTION_DAYS", 30))
-    SILVER_RETENTION_DAYS = int(os.getenv("SILVER_RETENTION_DAYS", 60))
-    GOLD_RETENTION_DAYS = int(os.getenv("GOLD_RETENTION_DAYS", 365))
-
-    # ============================================================================
     # Batch et timing
     # ============================================================================
 
     BATCH_INTERVAL_HOURS = 2  # Toutes les 2 heures, comme spécifié dans le kata
-    BATCH_INTERVAL_MINUTES = BATCH_INTERVAL_HOURS * 60
 
     COLLECTION_TIMEOUT_MINUTES = 30  # Timeout pour une collecte de zone (SLA alerting)
 
@@ -76,9 +67,6 @@ class PipelineConfig:
     LOG_PATH = f"{DATALAKE_ROOT}/_logs"
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-    # Format de logs JSON pour parsing
-    LOG_FORMAT = "json"  # ou "text"
-
     # ============================================================================
     # API FlightRadarAPI
     # ============================================================================
@@ -96,10 +84,6 @@ class PipelineConfig:
     # Authentification FR24 (quota plus élevé). Secrets via env, jamais en dur/loggués.
     FR24_EMAIL = os.getenv("FR24_EMAIL", "")
     FR24_PASSWORD = os.getenv("FR24_PASSWORD", "")
-
-    # Enrichissement par vol (get_flight_details) : DÉSACTIVÉ par défaut — l'enrichissement
-    # vient désormais des dimensions bulk (get_airports/get_airlines) jointes en Spark.
-    API_ENRICH_DETAILS = os.getenv("API_ENRICH_DETAILS", "false").lower() == "true"
 
     # Cache des dimensions de référence (jours) : get_airports n'est rechargé
     # que si le cache Silver est plus vieux que ce seuil.
@@ -171,11 +155,6 @@ class PipelineConfig:
         return f"{cls.BRONZE_PATH}/flights_raw"
 
     @classmethod
-    def get_bronze_checkpoints_path(cls):
-        """Chemin des checkpoints Spark (tolerance failures)."""
-        return f"{cls.BRONZE_PATH}/_checkpoints"
-
-    @classmethod
     def get_silver_fact_flights_path(cls):
         """Chemin de la table fact_flights nettoyée."""
         return f"{cls.SILVER_PATH}/fact_flights"
@@ -210,11 +189,6 @@ class PipelineConfig:
             "bronze_path": cls.BRONZE_PATH,
             "silver_path": cls.SILVER_PATH,
             "gold_path": cls.GOLD_PATH,
-            "retention_days": {
-                "bronze": cls.BRONZE_RETENTION_DAYS,
-                "silver": cls.SILVER_RETENTION_DAYS,
-                "gold": cls.GOLD_RETENTION_DAYS,
-            },
             "batch_interval_hours": cls.BATCH_INTERVAL_HOURS,
             "spark_master": cls.SPARK_MASTER,
             "spark_shuffle_partitions": cls.SPARK_SHUFFLE_PARTITIONS,

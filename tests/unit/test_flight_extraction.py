@@ -52,7 +52,6 @@ class TestFlightExtractor:
 
             config = {
                 "zones": ["global"],
-                "enrich": False,
                 "timeout": 30,
                 "max_workers": 8
             }

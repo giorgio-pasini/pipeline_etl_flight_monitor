@@ -164,59 +164,6 @@ class JobMetrics:
         return output_path
 
     @staticmethod
-    def load_from_json(json_path: str) -> Dict:
-        """Charger les métriques depuis un fichier JSON."""
-        with open(json_path, "r") as f:
-            return json.load(f)
-
-    def get_summary(self) -> str:
-        """
-        Retourner un résumé texte des métriques.
-
-        Utile pour logging/debugging.
-        """
-        summary = f"""
-╔═══════════════════════════════════════════════════════╗
-║ BATCH METRICS SUMMARY: {self.batch_id}
-╚═══════════════════════════════════════════════════════╝
-
-📥 EXTRACTION:
-  • Rows: {self.metrics['extraction']['rows']}
-  • Duration: {self.metrics['extraction']['duration_seconds']}s
-
-✅ VALIDATION:
-  • Valid: {self.metrics['validation']['valid_rows']}
-  • Invalid: {self.metrics['validation']['invalid_rows']}
-  • Valid %: {self.metrics['validation']['pct_valid']}%
-
-📊 DATA ANALYSIS:
-  • In Flight: {self.metrics['analysis']['in_flight_count']} ({self.metrics['analysis']['pct_in_flight']}%)
-  • On Ground: {self.metrics['analysis']['on_ground_count']}
-
-📋 DIMENSIONS:
-  • Airlines: {self.metrics['dimensions']['dim_airlines']['unique_count']} unique
-  • Airports: {self.metrics['dimensions']['dim_airports']['unique_count']} unique
-  • Aircraft Models: {self.metrics['dimensions']['dim_aircraft_models']['unique_count']} unique
-  • Countries: {self.metrics['dimensions']['dim_countries_continents']['unique_count']} unique
-
-🎯 GOLD KPIs:
-  • kpi_airline_volumes: {self.metrics['gold']['kpi_airline_volumes']['rows']} rows
-  • kpi_continental_regional: {self.metrics['gold']['kpi_continental_regional']['rows']} rows
-  • kpi_longest_flight: {self.metrics['gold']['kpi_longest_flight']['rows']} rows
-  • kpi_continental_avg_distance: {self.metrics['gold']['kpi_continental_avg_distance']['rows']} rows
-  • kpi_aircraft_manufacturers: {self.metrics['gold']['kpi_aircraft_manufacturers']['rows']} rows
-  • kpi_airline_aircraft_top3: {self.metrics['gold']['kpi_airline_aircraft_top3']['rows']} rows
-  • kpi_airport_imbalance: {self.metrics['gold']['kpi_airport_imbalance']['rows']} rows
-
-❌ ERRORS: {self.metrics['num_errors']}
-⚠️  WARNINGS: {self.metrics['num_warnings']}
-
-⏱️  TOTAL DURATION: {self.metrics.get('total_duration_seconds', 'N/A')}s
-📊 STATUS: {self.metrics.get('status', 'unknown')}
-"""
-        return summary
-
-    @staticmethod
     def load_all_metrics(logs_dir: str = None) -> list:
         """
         Charger tous les fichiers de métriques.

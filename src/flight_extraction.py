@@ -3,7 +3,6 @@ Extraction des données de l'API FlightRadarAPI.
 
 Fournit les fonctions pour :
 - Collecter les vols par zone (ou globalement)
-- Enrichir les vols avec get_flight_details()
 - Formater en DataFrames Spark
 - Gérer les erreurs et timeouts
 
@@ -15,7 +14,6 @@ import time
 from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime, timezone
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from FlightRadarAPI import FlightRadar24API
 from pyspark.sql import SparkSession, DataFrame
@@ -157,7 +155,6 @@ class FlightExtractor:
                 self.logger.warning(f"FR24 login échoué ({email}) — on continue anonyme : {e}")
 
         self.timeout_seconds = timeout_seconds
-        self.max_workers = max_workers
         self.max_retries = max_retries
 
     def get_flights_for_zone(
@@ -165,7 +162,6 @@ class FlightExtractor:
         zone_name: Optional[str] = None,
         airline: Optional[str] = None,
         aircraft_type: Optional[str] = None,
-        enrich: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Collecter les vols pour une zone donnée.
@@ -174,7 +170,6 @@ class FlightExtractor:
             zone_name: Nom de la zone ("europe", "northamerica", etc.) ou None pour global
             airline: Filtre ICAO (ex: "DL" pour Delta)
             aircraft_type: Filtre type avion (ex: "B737")
-            enrich: Si True, appeler get_flight_details() pour chaque vol
 
         Returns:
             Liste de dicts avec données de vol
@@ -206,14 +201,8 @@ class FlightExtractor:
                 logger_obj=self.logger,
             )
 
-            # 2) Enrichissement best-effort, par vol (un échec n'annule pas la zone).
-            enriched_count = 0
-            if enrich and flights:
-                enriched_count = self._enrich_flights(flights)
-
             self.logger.info(
-                f"Collecté {len(flights)} vols "
-                f"(zone={zone_name or 'global'}, enrichis={enriched_count})"
+                f"Collecté {len(flights)} vols (zone={zone_name or 'global'})"
             )
 
             return flights
@@ -222,28 +211,6 @@ class FlightExtractor:
             # Fault-tolerance : on n'interrompt pas le batch, la zone retourne vide
             self.logger.error(f"Erreur lors de la collecte (zone={zone_name}): {e}")
             return []
-
-    def _enrich_flights(self, flights: List[Any]) -> int:
-        """
-        Enrichir les vols via get_flight_details() en parallèle, best-effort.
-
-        Un échec sur un vol (timeout, 429, etc.) est avalé : le vol reste non
-        enrichi mais la collecte de la zone n'est pas annulée.
-
-        Returns:
-            Nombre de vols effectivement enrichis.
-        """
-        enriched = 0
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self.api.get_flight_details, f): f for f in flights}
-            for future in as_completed(futures):
-                flight = futures[future]
-                try:
-                    flight.set_flight_details(future.result())
-                    enriched += 1
-                except Exception as e:
-                    self.logger.debug(f"Enrichissement échoué pour {getattr(flight, 'id', '?')}: {e}")
-        return enriched
 
     def flights_to_dicts(
         self,
@@ -367,7 +334,6 @@ class FlightExtractor:
         self,
         spark: SparkSession,
         zones: Optional[List[str]] = None,
-        enrich: bool = False,
     ) -> DataFrame:
         """
         Collecter les vols de multiple zones et les convertir en un seul DataFrame.
@@ -375,7 +341,6 @@ class FlightExtractor:
         Args:
             spark: Session Spark
             zones: Liste des zones à collecter (None = ['global'])
-            enrich: Si True, enrichir avec get_flight_details()
 
         Returns:
             DataFrame unifié (union de toutes les zones)
@@ -389,10 +354,7 @@ class FlightExtractor:
 
         for zone in zones:
             zone_name = zone if zone != "global" else None
-            flights = self.get_flights_for_zone(
-                zone_name=zone_name,
-                enrich=enrich
-            )
+            flights = self.get_flights_for_zone(zone_name=zone_name)
 
             if flights:
                 df = self.flights_to_spark_df(spark, flights, batch_id, zone)
@@ -429,7 +391,6 @@ def extract_flights_batch(
         spark: Session Spark
         config: dict avec clés:
             - zones: List[str] (ou ["global"])
-            - enrich: bool (si enrichir avec get_flight_details)
             - timeout: int (timeout API en secondes)
 
     Returns:
@@ -450,7 +411,6 @@ def extract_flights_batch(
     df = extractor.collect_and_convert(
         spark=spark,
         zones=config.get("zones", ["global"]),
-        enrich=config.get("enrich", False)
     )
 
     return df
@@ -466,7 +426,7 @@ if __name__ == "__main__":
     spark = SparkSession.builder.appName("FlightExtractionTest").getOrCreate()
 
     extractor = FlightExtractor()
-    df = extractor.collect_and_convert(spark, zones=["global"], enrich=False)
+    df = extractor.collect_and_convert(spark, zones=["global"])
 
     print(f"Extracted {df.count()} flights")
     df.show(3)
