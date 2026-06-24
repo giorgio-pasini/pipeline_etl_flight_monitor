@@ -138,16 +138,15 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
                 "%USERPROFILE%\\hadoop."
             )
 
+    # En local[*], seul le driver tourne (pas d'executors séparés) : on ne règle que
+    # driver.memory. Le tuning spark.executor.* relèverait d'un déploiement cluster.
     builder = SparkSession.builder \
         .appName(config.SPARK_APP_NAME) \
         .master(config.SPARK_MASTER) \
         .config("spark.sql.shuffle.partitions", config.SPARK_SHUFFLE_PARTITIONS) \
         .config("spark.sql.adaptive.enabled", config.SPARK_ADAPTIVE_EXECUTION_ENABLED) \
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false") \
-        .config("spark.executor.memory", config.SPARK_EXECUTOR_MEMORY) \
-        .config("spark.driver.memory", config.SPARK_DRIVER_MEMORY) \
-        .config("spark.executor.cores", config.SPARK_EXECUTOR_CORES) \
-        .config("spark.executor.instances", config.SPARK_EXECUTOR_INSTANCES)
+        .config("spark.driver.memory", config.SPARK_DRIVER_MEMORY)
 
     # Windows : exposer hadoop.dll (NativeIO) à la JVM via java.library.path.
     # Sans cela, l'écriture Parquet échoue avec UnsatisfiedLinkError sur

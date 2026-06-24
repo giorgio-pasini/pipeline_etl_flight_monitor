@@ -59,12 +59,13 @@ class DatalakeConfig:
     SPARK_APP_NAME = "flight-radar-etl-pipeline"
     SPARK_MASTER = os.getenv("SPARK_MASTER", "local[*]")
 
-    # Tuning pour Spark Core Batch
-    SPARK_SHUFFLE_PARTITIONS = int(os.getenv("SPARK_SHUFFLE_PARTITIONS", 200))
-    SPARK_EXECUTOR_MEMORY = os.getenv("SPARK_EXECUTOR_MEMORY", "4g")
+    # Tuning pour Spark Core Batch (mono-machine, petite donnée ~qqs Mo).
+    # shuffle.partitions bas car la donnée est petite (200 = défaut cluster, surdimensionné) ;
+    # l'AQE coalesce de toute façon au runtime. Surchargeable par env pour un futur cluster.
+    SPARK_SHUFFLE_PARTITIONS = int(os.getenv("SPARK_SHUFFLE_PARTITIONS", 16))
     SPARK_DRIVER_MEMORY = os.getenv("SPARK_DRIVER_MEMORY", "2g")
-    SPARK_EXECUTOR_CORES = int(os.getenv("SPARK_EXECUTOR_CORES", 4))
-    SPARK_EXECUTOR_INSTANCES = int(os.getenv("SPARK_EXECUTOR_INSTANCES", 4))
+    # Note : en local[*] il n'y a pas d'executors séparés (un seul JVM driver) — les réglages
+    # spark.executor.* seraient ignorés. Le tuning executor relèverait d'un déploiement cluster.
 
     SPARK_ADAPTIVE_EXECUTION_ENABLED = True
 
