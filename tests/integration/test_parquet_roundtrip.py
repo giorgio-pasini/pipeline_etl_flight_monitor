@@ -12,7 +12,7 @@ from datetime import datetime
 from pyspark.sql.functions import lit, col
 
 from src.datalake_utils import get_partition_values
-from config.datalake_config import PARTITION_COLUMNS_BRONZE
+from config.pipeline_config import PARTITION_COLUMNS_BRONZE
 
 
 def test_bronze_partition_roundtrip(spark_session, temp_datalake, parquet_write_supported):

@@ -20,7 +20,10 @@ from pyspark.sql import SparkSession
 # Import local
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
+# Auto-détection de HADOOP_HOME (winutils) — même mécanisme que le pipeline, pour que les
+# tests qui écrivent du Parquet tournent sous Windows sans réglage manuel (au lieu de skip).
+from src.batch_job import _ensure_hadoop_home
 
 
 # Tous les attributs lus par FlightExtractor.flights_to_dicts (vrais noms FlightRadarAPI)
@@ -56,16 +59,23 @@ def make_mock_flight(**overrides):
 @pytest.fixture(scope="session")
 def spark_session():
     """Créer une session Spark pour les tests (une par session de test)."""
-    spark = SparkSession.builder \
+    # Poser HADOOP_HOME (winutils) avant le démarrage de la JVM, comme le pipeline.
+    hadoop_home = _ensure_hadoop_home()  # no-op hors Windows
+
+    builder = SparkSession.builder \
         .appName("flight-radar-tests") \
         .master("local[2]") \
         .config("spark.sql.shuffle.partitions", "4") \
         .config("spark.driver.memory", "1g") \
         .config("spark.sql.sources.partitionColumnTypeInference.enabled", "false") \
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic") \
-        .config("spark.sql.session.timeZone", "UTC") \
-        .getOrCreate()
+        .config("spark.sql.session.timeZone", "UTC")
 
+    # Windows : exposer hadoop.dll (NativeIO) à la JVM (sinon UnsatisfiedLinkError à l'écriture).
+    if os.name == "nt" and hadoop_home:
+        builder = builder.config("spark.driver.extraLibraryPath", os.path.join(hadoop_home, "bin"))
+
+    spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
 
     yield spark
@@ -105,23 +115,23 @@ def temp_datalake(tmp_path):
 
     # Sauvegarder l'ancienne config
     saved = {
-        attr: getattr(DatalakeConfig, attr)
+        attr: getattr(PipelineConfig, attr)
         for attr in ["DATALAKE_ROOT", "BRONZE_PATH", "SILVER_PATH", "GOLD_PATH", "LOG_PATH"]
     }
 
     # Override avec les chemins temporaires
     root = str(datalake_root)
-    DatalakeConfig.DATALAKE_ROOT = root
-    DatalakeConfig.BRONZE_PATH = f"{root}/bronze"
-    DatalakeConfig.SILVER_PATH = f"{root}/silver"
-    DatalakeConfig.GOLD_PATH = f"{root}/gold"
-    DatalakeConfig.LOG_PATH = f"{root}/_logs"
+    PipelineConfig.DATALAKE_ROOT = root
+    PipelineConfig.BRONZE_PATH = f"{root}/bronze"
+    PipelineConfig.SILVER_PATH = f"{root}/silver"
+    PipelineConfig.GOLD_PATH = f"{root}/gold"
+    PipelineConfig.LOG_PATH = f"{root}/_logs"
 
     yield datalake_root
 
     # Restaurer
     for attr, value in saved.items():
-        setattr(DatalakeConfig, attr, value)
+        setattr(PipelineConfig, attr, value)
 
 
 @pytest.fixture

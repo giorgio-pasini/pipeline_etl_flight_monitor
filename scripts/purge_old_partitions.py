@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 # Ajouter src au path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
 from src.datalake_utils import cleanup_old_partitions, estimate_storage_usage, list_partitions
 
 
@@ -76,7 +76,7 @@ def show_partition_summary(datalake_path: str, logger: logging.Logger):
             logger.info(f"{layer}/{table}: (aucune partition trouvée)")
 
 
-def show_retention_schedule(config: DatalakeConfig, logger: logging.Logger):
+def show_retention_schedule(config: PipelineConfig, logger: logging.Logger):
     """Afficher le calendrier de rétention."""
     logger.info("\n=== Calendrier de rétention ===\n")
 
@@ -196,12 +196,12 @@ def main():
 
     # Override config si nécessaire
     if args.datalake_root:
-        DatalakeConfig.DATALAKE_ROOT = args.datalake_root
+        PipelineConfig.DATALAKE_ROOT = args.datalake_root
 
-    DatalakeConfig.validate()
+    PipelineConfig.validate()
 
     logger.info("=== Purge des partitions anciennes ===\n")
-    logger.info(f"Datalake root: {DatalakeConfig.DATALAKE_ROOT}\n")
+    logger.info(f"Datalake root: {PipelineConfig.DATALAKE_ROOT}\n")
 
     # Mode dry-run par défaut
     dry_run = not args.execute
@@ -211,26 +211,26 @@ def main():
 
     if args.estimate_only:
         logger.info("Mode: estimation du stockage uniquement\n")
-        estimate_and_report(DatalakeConfig.DATALAKE_ROOT, logger)
-        show_partition_summary(DatalakeConfig.DATALAKE_ROOT, logger)
+        estimate_and_report(PipelineConfig.DATALAKE_ROOT, logger)
+        show_partition_summary(PipelineConfig.DATALAKE_ROOT, logger)
         return 0
 
     # Afficher le résumé et le calendrier
-    show_partition_summary(DatalakeConfig.DATALAKE_ROOT, logger)
-    show_retention_schedule(DatalakeConfig, logger)
+    show_partition_summary(PipelineConfig.DATALAKE_ROOT, logger)
+    show_retention_schedule(PipelineConfig, logger)
 
     # Décider quelles couches purger
     if args.all_layers:
         layers_to_purge = [
-            ("bronze", DatalakeConfig.BRONZE_RETENTION_DAYS),
-            ("silver", DatalakeConfig.SILVER_RETENTION_DAYS),
-            ("gold", DatalakeConfig.GOLD_RETENTION_DAYS),
+            ("bronze", PipelineConfig.BRONZE_RETENTION_DAYS),
+            ("silver", PipelineConfig.SILVER_RETENTION_DAYS),
+            ("gold", PipelineConfig.GOLD_RETENTION_DAYS),
         ]
     elif args.layer:
         retention_map = {
-            "bronze": DatalakeConfig.BRONZE_RETENTION_DAYS,
-            "silver": DatalakeConfig.SILVER_RETENTION_DAYS,
-            "gold": DatalakeConfig.GOLD_RETENTION_DAYS,
+            "bronze": PipelineConfig.BRONZE_RETENTION_DAYS,
+            "silver": PipelineConfig.SILVER_RETENTION_DAYS,
+            "gold": PipelineConfig.GOLD_RETENTION_DAYS,
         }
         layers_to_purge = [(args.layer, retention_map[args.layer])]
     else:
@@ -244,7 +244,7 @@ def main():
 
     for layer, retention_days in layers_to_purge:
         stats = purge_single_layer(
-            DatalakeConfig.DATALAKE_ROOT,
+            PipelineConfig.DATALAKE_ROOT,
             layer,
             retention_days,
             dry_run=dry_run,
@@ -266,7 +266,7 @@ def main():
         logger.info("\n💡 Pour exécuter la suppression réelle, relancez avec --execute")
 
     # Afficher l'usage du stockage après
-    estimate_and_report(DatalakeConfig.DATALAKE_ROOT, logger)
+    estimate_and_report(PipelineConfig.DATALAKE_ROOT, logger)
 
     return 0
 

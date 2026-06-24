@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
 
 
 def setup_logging(verbose=False):
@@ -27,7 +27,7 @@ def setup_logging(verbose=False):
     return logging.getLogger(__name__)
 
 
-def create_directory_structure(config: DatalakeConfig, logger: logging.Logger) -> bool:
+def create_directory_structure(config: PipelineConfig, logger: logging.Logger) -> bool:
     """Créer l'arborescence du datalake (bronze/silver/gold/_logs)."""
     layers = {
         "Bronze (données brutes)": config.BRONZE_PATH,
@@ -52,11 +52,11 @@ def main():
     args = parser.parse_args()
 
     if args.datalake_root:
-        DatalakeConfig.DATALAKE_ROOT = args.datalake_root
+        PipelineConfig.DATALAKE_ROOT = args.datalake_root
 
     logger = setup_logging(args.verbose)
-    logger.info(f"Initialisation du datalake : {DatalakeConfig.DATALAKE_ROOT}")
-    ok = create_directory_structure(DatalakeConfig, logger)
+    logger.info(f"Initialisation du datalake : {PipelineConfig.DATALAKE_ROOT}")
+    ok = create_directory_structure(PipelineConfig, logger)
     logger.info("✓ Datalake initialisé." if ok else "✗ Échec de l'initialisation.")
     return 0 if ok else 1
 

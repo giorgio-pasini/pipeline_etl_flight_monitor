@@ -19,7 +19,7 @@ from pathlib import Path
 # Import local modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
 from src.batch_job import run_batch, create_spark_session, setup_logging
 
 
@@ -59,20 +59,20 @@ def main():
     args = parser.parse_args()
 
     if args.datalake_root:
-        DatalakeConfig.DATALAKE_ROOT = args.datalake_root
+        PipelineConfig.DATALAKE_ROOT = args.datalake_root
 
-    DatalakeConfig.validate()
+    PipelineConfig.validate()
 
-    logger = setup_logging(DatalakeConfig)
+    logger = setup_logging(PipelineConfig)
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    spark = create_spark_session(DatalakeConfig)
+    spark = create_spark_session(PipelineConfig)
 
     try:
         success = run_batch(
             spark,
-            DatalakeConfig,
+            PipelineConfig,
             logger,
             zones=args.zones,
             with_silver_gold=args.with_silver_gold,

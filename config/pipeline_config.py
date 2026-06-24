@@ -16,7 +16,7 @@ from pathlib import Path
 from datetime import timedelta
 
 
-class DatalakeConfig:
+class PipelineConfig:
     """Configuration du datalake — source unique de vérité."""
 
     # ============================================================================
@@ -266,8 +266,8 @@ PARTITION_COLUMNS_GOLD = ["tech_year", "tech_month", "tech_day"]
 if __name__ == "__main__":
     # Test configuration
     print("=== Configuration du datalake ===")
-    DatalakeConfig.validate()
-    print(f"\nBronze flights path: {DatalakeConfig.get_bronze_flights_path()}")
-    print(f"Silver fact flights path: {DatalakeConfig.get_silver_fact_flights_path()}")
-    print(f"Silver airlines dim path: {DatalakeConfig.get_silver_dim_path('dim_airlines')}")
-    print(f"Gold airline volumes KPI path: {DatalakeConfig.get_gold_kpi_path('kpi_airline_volumes')}")
+    PipelineConfig.validate()
+    print(f"\nBronze flights path: {PipelineConfig.get_bronze_flights_path()}")
+    print(f"Silver fact flights path: {PipelineConfig.get_silver_fact_flights_path()}")
+    print(f"Silver airlines dim path: {PipelineConfig.get_silver_dim_path('dim_airlines')}")
+    print(f"Gold airline volumes KPI path: {PipelineConfig.get_gold_kpi_path('kpi_airline_volumes')}")

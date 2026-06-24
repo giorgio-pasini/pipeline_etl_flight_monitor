@@ -134,7 +134,7 @@ class TestLoadDimAirlines:
         if not parquet_write_supported:
             pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
 
-        from config.datalake_config import DatalakeConfig
+        from config.pipeline_config import PipelineConfig
 
         api = Mock()
         api.get_airlines.return_value = [
@@ -143,7 +143,7 @@ class TestLoadDimAirlines:
             {"Name": "No ICAO", "ICAO": None, "IATA": "XX", "n_aircrafts": 1},  # ignoré
         ]
 
-        df = load_dim_airlines(spark_session, api, DatalakeConfig)
+        df = load_dim_airlines(spark_session, api, PipelineConfig)
         rows = {r["airline_icao"]: r for r in df.collect()}
         assert set(rows) == {"DAL", "AFR"}
         assert rows["DAL"]["airline_name"] == "Delta Air Lines"

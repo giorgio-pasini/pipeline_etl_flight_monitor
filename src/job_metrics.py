@@ -229,8 +229,8 @@ class JobMetrics:
         """
         if logs_dir is None:
             try:
-                from config.datalake_config import DatalakeConfig
-                logs_dir = DatalakeConfig.LOG_PATH
+                from config.pipeline_config import PipelineConfig
+                logs_dir = PipelineConfig.LOG_PATH
             except Exception:
                 logs_dir = "datalake/_logs"
 

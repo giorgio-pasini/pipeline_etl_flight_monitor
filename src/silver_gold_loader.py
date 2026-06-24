@@ -9,7 +9,7 @@ import logging
 from pyspark.sql import SparkSession, DataFrame
 from datetime import datetime, timezone
 
-from config.datalake_config import PARTITION_COLUMNS_SILVER
+from config.pipeline_config import PARTITION_COLUMNS_SILVER
 
 from .transformations import (
     clean_and_enrich_bronze,

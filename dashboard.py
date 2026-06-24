@@ -15,9 +15,9 @@ import json
 from src.job_metrics import JobMetrics
 
 try:
-    from config.datalake_config import DatalakeConfig
-    GOLD_DIR = DatalakeConfig.GOLD_PATH
-    LOG_DIR = DatalakeConfig.LOG_PATH
+    from config.pipeline_config import PipelineConfig
+    GOLD_DIR = PipelineConfig.GOLD_PATH
+    LOG_DIR = PipelineConfig.LOG_PATH
 except Exception:
     GOLD_DIR = "datalake/gold"
     LOG_DIR = "datalake/_logs"

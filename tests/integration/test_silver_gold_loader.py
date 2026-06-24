@@ -12,7 +12,7 @@ from pyspark.sql.types import (
 )
 
 from src.silver_gold_loader import SilverGoldLoader
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
 
 
 # Schéma Bronze (sous-ensemble enrichi suffisant pour Silver/Gold) + partitions
@@ -70,10 +70,10 @@ def test_run_full_etl_end_to_end(spark_session, temp_datalake, parquet_write_sup
     if not parquet_write_supported:
         pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
 
-    bronze_path = DatalakeConfig.get_bronze_flights_path()
+    bronze_path = PipelineConfig.get_bronze_flights_path()
     _write_bronze(spark_session, _bronze_rows(datetime(2026, 6, 21, 14, 0, 0)), bronze_path)
 
-    loader = SilverGoldLoader(spark_session, DatalakeConfig)
+    loader = SilverGoldLoader(spark_session, PipelineConfig)
     result = loader.run_full_etl(bronze_path)
 
     # Silver : 3 vols uniques
@@ -99,20 +99,20 @@ def test_run_full_etl_end_to_end(spark_session, temp_datalake, parquet_write_sup
     assert top_mfr[0]["manufacturer"] == "Boeing"
 
     # Dimensions Silver écrites et peuplées
-    dim_airports = spark_session.read.parquet(DatalakeConfig.get_silver_dim_path("dim_airports"))
+    dim_airports = spark_session.read.parquet(PipelineConfig.get_silver_dim_path("dim_airports"))
     assert {r["airport_iata"] for r in dim_airports.collect()} == {"JFK", "LAX", "ATL", "CDG"}
-    dim_airlines = spark_session.read.parquet(DatalakeConfig.get_silver_dim_path("dim_airlines"))
+    dim_airlines = spark_session.read.parquet(PipelineConfig.get_silver_dim_path("dim_airlines"))
     assert {r["airline_icao"] for r in dim_airlines.collect()} == {"DAL", "AFR"}
-    dim_aircraft = spark_session.read.parquet(DatalakeConfig.get_silver_dim_path("dim_aircraft_models"))
+    dim_aircraft = spark_session.read.parquet(PipelineConfig.get_silver_dim_path("dim_aircraft_models"))
     assert {r["aircraft_code"] for r in dim_aircraft.collect()} == {"B738", "B739", "A320"}
-    dim_countries = spark_session.read.parquet(DatalakeConfig.get_silver_dim_path("dim_countries_continents"))
+    dim_countries = spark_session.read.parquet(PipelineConfig.get_silver_dim_path("dim_countries_continents"))
     assert {r["country_code"] for r in dim_countries.collect()} == {"US", "FR"}
 
     # Conformité au requis horodaté : Silver ET Gold partitionnés jusqu'à tech_day
     from pathlib import Path
-    silver_days = list(Path(DatalakeConfig.SILVER_PATH, "fact_flights").glob("**/tech_day=*"))
+    silver_days = list(Path(PipelineConfig.SILVER_PATH, "fact_flights").glob("**/tech_day=*"))
     assert silver_days, "Silver fact_flights doit être partitionné jusqu'à tech_day"
-    gold_days = list(Path(DatalakeConfig.GOLD_PATH, "kpi_airline_volumes").glob("**/tech_day=*"))
+    gold_days = list(Path(PipelineConfig.GOLD_PATH, "kpi_airline_volumes").glob("**/tech_day=*"))
     assert gold_days, "Gold doit être partitionné jusqu'à tech_day"
     # La hiérarchie attendue : tech_year=/tech_month=/tech_day=
     assert any("tech_month=" in str(p.parent) for p in gold_days)
@@ -123,12 +123,12 @@ def test_run_full_etl_dedups_across_batches(spark_session, temp_datalake, parque
     if not parquet_write_supported:
         pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
 
-    bronze_path = DatalakeConfig.get_bronze_flights_path()
+    bronze_path = PipelineConfig.get_bronze_flights_path()
     # Batch 1 puis batch 2 (timestamp plus récent) avec les mêmes flight_id
     _write_bronze(spark_session, _bronze_rows(datetime(2026, 6, 21, 14, 0, 0)), bronze_path)
     _write_bronze(spark_session, _bronze_rows(datetime(2026, 6, 21, 16, 0, 0)), bronze_path)
 
-    loader = SilverGoldLoader(spark_session, DatalakeConfig)
+    loader = SilverGoldLoader(spark_session, PipelineConfig)
     result = loader.run_full_etl(bronze_path)
 
     # 6 lignes Bronze mais 3 flight_id uniques -> dedup garde le plus récent
@@ -140,15 +140,15 @@ def test_gold_write_is_idempotent(spark_session, temp_datalake, parquet_write_su
     if not parquet_write_supported:
         pytest.skip("Écriture Parquet indisponible (HADOOP_HOME/winutils requis sous Windows)")
 
-    bronze_path = DatalakeConfig.get_bronze_flights_path()
+    bronze_path = PipelineConfig.get_bronze_flights_path()
     _write_bronze(spark_session, _bronze_rows(datetime(2026, 6, 21, 14, 0, 0)), bronze_path)
 
-    loader = SilverGoldLoader(spark_session, DatalakeConfig)
+    loader = SilverGoldLoader(spark_session, PipelineConfig)
     loader.run_full_etl(bronze_df=spark_session.read.parquet(bronze_path))
     loader.run_full_etl(bronze_df=spark_session.read.parquet(bronze_path))  # 2e run, même jour
 
     # kpi_airline_volumes = 1 ligne métier ; après 2 runs overwrite -> toujours 1 (pas 2)
-    gold = spark_session.read.parquet(f"{DatalakeConfig.GOLD_PATH}/kpi_airline_volumes")
+    gold = spark_session.read.parquet(f"{PipelineConfig.GOLD_PATH}/kpi_airline_volumes")
     assert gold.count() == 1
     assert gold.select("computed_at").distinct().count() == 1
 

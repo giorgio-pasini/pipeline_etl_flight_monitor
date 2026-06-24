@@ -5,6 +5,6 @@ Module :
 - datalake_config : Configuration centralisée du datalake
 """
 
-from .datalake_config import DatalakeConfig
+from .pipeline_config import PipelineConfig
 
-__all__ = ["DatalakeConfig"]
+__all__ = ["PipelineConfig"]

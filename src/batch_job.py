@@ -42,7 +42,7 @@ from pyspark.sql.functions import col, lit
 # Import local
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.datalake_config import DatalakeConfig, PARTITION_COLUMNS_BRONZE
+from config.pipeline_config import PipelineConfig, PARTITION_COLUMNS_BRONZE
 from src.flight_extraction import extract_flights_batch
 from src.data_quality import validate_and_flag_flights, profile_data_quality
 from src.datalake_utils import get_partition_values
@@ -52,7 +52,7 @@ from src.alerting import check_and_alert
 import json
 
 
-def setup_logging(config: DatalakeConfig):
+def setup_logging(config: PipelineConfig):
     """Configurer le logging (fichier + console), robuste UTF-8 sous Windows."""
     log_path = Path(config.get_log_path())
     log_path.mkdir(parents=True, exist_ok=True)
@@ -112,7 +112,7 @@ def _ensure_hadoop_home() -> Optional[str]:
     return None
 
 
-def create_spark_session(config: DatalakeConfig) -> SparkSession:
+def create_spark_session(config: PipelineConfig) -> SparkSession:
     """Créer et configurer la session Spark."""
 
     # Forcer l'interpréteur Python des workers Spark = celui qui lance le job.
@@ -166,7 +166,7 @@ def create_spark_session(config: DatalakeConfig) -> SparkSession:
 
 def run_batch(
     spark: SparkSession,
-    config: DatalakeConfig,
+    config: PipelineConfig,
     logger: logging.Logger,
     zones: Optional[list] = None,
     with_silver_gold: Optional[bool] = None,
@@ -367,7 +367,7 @@ def run_batch(
         return False
 
 
-def _finalize_and_alert(metrics: JobMetrics, config: DatalakeConfig, logger: logging.Logger):
+def _finalize_and_alert(metrics: JobMetrics, config: PipelineConfig, logger: logging.Logger):
     """Finaliser les métriques, les sauvegarder, puis évaluer/déclencher les alertes."""
     metrics.finalize()
     _save_metrics(metrics, config, logger)
@@ -377,7 +377,7 @@ def _finalize_and_alert(metrics: JobMetrics, config: DatalakeConfig, logger: log
         logger.warning(f"⚠️  Alerting échoué : {e}")
 
 
-def _save_metrics(metrics: JobMetrics, config: DatalakeConfig, logger: logging.Logger):
+def _save_metrics(metrics: JobMetrics, config: PipelineConfig, logger: logging.Logger):
     """Sauvegarder les métriques JSON dans LOG_PATH (lu par le dashboard)."""
     try:
         metrics_dir = Path(config.LOG_PATH)
@@ -426,17 +426,17 @@ def main():
 
     # Override config si nécessaire
     if args.datalake_root:
-        DatalakeConfig.DATALAKE_ROOT = args.datalake_root
+        PipelineConfig.DATALAKE_ROOT = args.datalake_root
 
-    DatalakeConfig.validate()
+    PipelineConfig.validate()
 
-    logger = setup_logging(DatalakeConfig)
-    spark = create_spark_session(DatalakeConfig)
+    logger = setup_logging(PipelineConfig)
+    spark = create_spark_session(PipelineConfig)
 
     try:
         logger.info("="*70)
         logger.info("Job Spark Core Batch — Trafic aérien")
-        logger.info(f"Datalake: {DatalakeConfig.DATALAKE_ROOT}")
+        logger.info(f"Datalake: {PipelineConfig.DATALAKE_ROOT}")
         logger.info(f"Zones: {args.zones}")
         logger.info(f"Silver/Gold: {args.with_silver_gold}")
         logger.info("="*70)
@@ -445,7 +445,7 @@ def main():
         # La récurrence (toutes les 2h) est gérée par un scheduler externe
         # (cron / Task Scheduler — voir documentation/DOCUMENTATION.md § 6), pas par une boucle interne.
         success = run_batch(
-            spark, DatalakeConfig, logger,
+            spark, PipelineConfig, logger,
             zones=args.zones,
             with_silver_gold=args.with_silver_gold,
         )

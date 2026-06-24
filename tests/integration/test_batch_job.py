@@ -5,7 +5,7 @@ import logging
 from unittest.mock import Mock, patch
 from pathlib import Path
 from src.batch_job import run_batch, create_spark_session
-from config.datalake_config import DatalakeConfig
+from config.pipeline_config import PipelineConfig
 from tests.conftest import make_mock_flight
 
 
@@ -40,7 +40,7 @@ class TestBatchJobIntegration:
 
             success = run_batch(
                 spark_session,
-                DatalakeConfig,
+                PipelineConfig,
                 logger,
                 zones=["global"]
             )
@@ -61,7 +61,7 @@ class TestBatchJobIntegration:
 
             success = run_batch(
                 spark_session,
-                DatalakeConfig,
+                PipelineConfig,
                 logger,
                 zones=["global"]
             )
@@ -105,7 +105,7 @@ class TestBatchJobFaultTolerance:
 
             success = run_batch(
                 spark_session,
-                DatalakeConfig,
+                PipelineConfig,
                 logger,
                 zones=["global"]
             )

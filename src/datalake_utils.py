@@ -75,8 +75,8 @@ def cleanup_old_partitions(
         }
     """
     if datalake_path is None:
-        from config.datalake_config import DatalakeConfig
-        datalake_path = DatalakeConfig.DATALAKE_ROOT
+        from config.pipeline_config import PipelineConfig
+        datalake_path = PipelineConfig.DATALAKE_ROOT
 
     layer_path = Path(datalake_path) / layer
     if not layer_path.exists():
