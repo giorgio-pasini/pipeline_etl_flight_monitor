@@ -4,8 +4,3 @@
 # Tests
 pytest==7.4.0
 pytest-mock==3.12.0
-
-# Outils qualité de code (optionnels)
-black==23.10.0
-flake8==6.1.0
-mypy==1.5.0
