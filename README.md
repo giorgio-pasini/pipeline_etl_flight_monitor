@@ -116,7 +116,7 @@ tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécur
 | **Enrichissement par dimensions *bulk* (vs `get_flight_details` par vol)** | Anti-quota / anti-rate-limit : 1 appel groupé au lieu de N appels (N = nb de vols) |
 | **Jeu aéroports statique OpenFlights (auto-téléchargé/rafraîchi)** | Fiabilité, **zéro quota API**, résultats reproductibles ; TTL de rafraîchissement configurable |
 | **Image Docker unique `flight-etl` (réutilisée par `etl` + `dashboard`)** | Simplicité, une seule build, pas de double construction concurrente du même tag |
-| **Idempotence (overwrite par partition + dédup `flight_id`)** | Re-run de la même heure = remplacement, jamais d'empilement ; **validé par un test de double run** |
+| **Idempotence des sorties (Silver/Gold : overwrite par partition + dédup `flight_id`)** | Re-run de la même heure = remplacement, jamais d'empilement. Bronze reste **append-only** (historique brut) ; la dédup + l'overwrite en aval garantissent l'idempotence — **validé par un test de double run** |
 | **Sécurité du socket Docker via `docker-socket-proxy`** | Airflow exécute du code DAG arbitraire : un proxy filtrant (réseau interne, non-root, API minimale) neutralise la faille classique du `docker.sock` — détail en section *Orchestration Airflow* |
 
 ## Structure du projet

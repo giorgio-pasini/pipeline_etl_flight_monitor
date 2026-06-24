@@ -80,7 +80,7 @@ API FlightRadar24 (temps réel)
 | **Postgres + LocalExecutor** | Évite le verrou SQLite sous la charge scheduler ; déploiement minimal (2 conteneurs) mais fiable |
 | **Enrichissement dimensions bulk** | Anti-quota/anti-rate-limit : 1 appel groupé au lieu de N (cf. §5) |
 | **Jeu aéroports statique OpenFlights** | Fiabilité, zéro quota API, reproductible ; auto-téléchargé/rafraîchi (TTL configurable) |
-| **Idempotence (overwrite + dédup)** | Re-run de la même heure = remplacement, pas d'empilement ; validé par test de double run |
+| **Idempotence des sorties (Silver/Gold : overwrite + dédup)** | Re-run de la même heure = remplacement, pas d'empilement. Bronze reste append-only (brut) ; idempotence assurée en aval — validé par test de double run |
 | **Socket Docker via `docker-socket-proxy`** | Airflow non-root, sans montage du socket : proxy filtrant (réseau interne, API minimale) qui neutralise la faille `docker.sock` |
 
 ---
