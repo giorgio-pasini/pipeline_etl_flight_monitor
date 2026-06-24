@@ -95,6 +95,28 @@ Le code métier (extraction, cleaning, KPIs, partitionnement `tech_*`) est **ide
 l'environnement d'exécution change. Passer à l'échelle = changer `SPARK_MASTER` (cluster) + lire/
 écrire sur l'object storage — **sans réécriture de la logique**.
 
+## Choix techniques & justifications
+
+Chaque décision structurante répond à un besoin du sujet (batch toutes les 2 h, scalabilité,
+tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécurité :
+
+| Choix | Justification |
+|---|---|
+| **Spark Core (batch, pas streaming)** | Scalabilité + tolérance aux pannes ; le besoin est un batch ponctuel toutes les 2 h, pas un flux continu |
+| **Architecture Medallion (Bronze → Silver → Gold)** | Traçabilité, découplage des étapes, **Bronze rejouable** → on recalcule Silver/Gold sans re-collecter l'API |
+| **Parquet + partition temporelle `year/month/day/hour`** | Columnar compressé, schéma fort, **partition pruning** à la lecture, rétention/purge triviales |
+| **Star schema (fait `fact_flights` + dimensions)** | Réutilisabilité, audit, séparation claire fait / dimensions |
+| **Airflow orchestre, n'exécute pas (DockerOperator)** | Image Airflow légère ; le job tourne **isolé** dans un conteneur `flight-etl` → équivalent local fidèle du `KubernetesPodOperator` de prod |
+| **Postgres + LocalExecutor (vs SQLite)** | Évite le verrou SQLite sous la charge du scheduler ; déploiement minimal (2 conteneurs) mais fiable |
+| **Enrichissement par dimensions *bulk* (vs `get_flight_details` par vol)** | Anti-quota / anti-rate-limit : 1 appel groupé au lieu de N appels (N = nb de vols) |
+| **Jeu aéroports statique OpenFlights (auto-téléchargé/rafraîchi)** | Fiabilité, **zéro quota API**, résultats reproductibles ; TTL de rafraîchissement configurable |
+| **Image Docker unique `flight-etl` (réutilisée par `etl` + `dashboard`)** | Simplicité, une seule build, pas de double construction concurrente du même tag |
+| **Idempotence (overwrite par partition + dédup `flight_id`)** | Re-run de la même heure = remplacement, jamais d'empilement ; **validé par un test de double run** |
+| **Sécurité du socket Docker via `docker-socket-proxy`** | Airflow exécute du code DAG arbitraire : un proxy filtrant (réseau interne, non-root, API minimale) neutralise la faille classique du `docker.sock`. En prod K8s, le `KubernetesPodOperator` remplace ce mécanisme |
+
+> Détail des arbitrages (alternatives écartées, contraintes Windows/Spark, hardening) dans
+> [DOCUMENTATION.md §1](documentation/DOCUMENTATION.md#1-vue-densemble).
+
 ## Structure du projet
 
 ```

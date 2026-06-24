@@ -77,6 +77,11 @@ API FlightRadar24 (temps réel)
 | **Parquet + partition temporelle** | Columnar compressé, schéma fort, partition pruning, rétention facile |
 | **Star schema** | Réutilisabilité, audit, séparation fait/dimensions |
 | **Orchestration Airflow** | DAG toutes les 2 h via DockerOperator ; pas de boucle interne (cron/Task Scheduler en repli) |
+| **Postgres + LocalExecutor** | Évite le verrou SQLite sous la charge scheduler ; déploiement minimal (2 conteneurs) mais fiable |
+| **Enrichissement dimensions bulk** | Anti-quota/anti-rate-limit : 1 appel groupé au lieu de N (cf. §5) |
+| **Jeu aéroports statique OpenFlights** | Fiabilité, zéro quota API, reproductible ; auto-téléchargé/rafraîchi (TTL configurable) |
+| **Idempotence (overwrite + dédup)** | Re-run de la même heure = remplacement, pas d'empilement ; validé par test de double run |
+| **Socket Docker via `docker-socket-proxy`** | Airflow non-root, sans montage du socket : proxy filtrant (réseau interne, API minimale) qui neutralise la faille `docker.sock` |
 
 ---
 
