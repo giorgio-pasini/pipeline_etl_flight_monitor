@@ -1,14 +1,22 @@
 # Pipeline ETL — Trafic Aérien Mondial
 
-Pipeline **ETL batch** (Apache Spark) qui collecte le trafic aérien mondial via l'API
-**FlightRadar24**, l'enrichit dans une architecture **Medallion** (Bronze → Silver → Gold),
-calcule **7 KPIs** et les expose dans un **dashboard Streamlit**. Orchestré **toutes les 2 heures**
-par **Apache Airflow** (conteneurisé via Docker).
+Pipeline **ETL batch** (Apache Spark) qui
+- 1 . collecte le trafic aérien mondial via l'API
+**FlightRadar24**,
+- 2 . l'enrichit dans une architecture **Medallion** (Bronze → Silver → Gold),
+- 3 . calcule **7 KPIs** et
+- 4 . les expose dans un **dashboard Streamlit**
+- 5 . orchestré **toutes les 2 heures** par **Apache Airflow**
+- 6 . tout conteneurisé via Docker
 
-**Les 7 KPIs** : (1) compagnie la plus active · (2) top compagnie régionale par continent ·
-(3) vol en cours le plus long · (4) distance moyenne par continent · (5) constructeur le plus
-actif · (6) top 3 modèles d'avion par pays · (7, bonus) aéroport au plus grand écart
-départs/arrivées.
+**Les 7 KPIs** :
+(1) compagnie la plus active
+(2) top compagnie régionale par continent
+(3) vol en cours le plus long
+(4) distance moyenne par continent
+(5) constructeur le plus actif
+(6) top 3 modèles d'avion par pays
+(7, bonus) aéroport au plus grand écart départs/arrivées.
 
 ```
 API FlightRadar24 ──► BRONZE (brut) ──► SILVER (fact_flights + 4 dimensions) ──► GOLD (7 KPIs) ──► Dashboard
@@ -138,8 +146,7 @@ tolérance aux pannes, anti-quota API) ou à une contrainte de fiabilité/sécur
 ├── dashboard.py              # dashboard Streamlit (statut run + KPIs + métriques)
 ├── documentation/
 │   └── DOCUMENTATION.md       # documentation technique complète
-├── plan_de_implementation.md # cahier des charges original
-└── premiere_exploration/     # notes de découverte de l'API
+└── premiere_exploration/     # notebook de découverte de l'API
 ```
 
 ## 🐳 Démarrage rapide avec Docker (recommandé)
@@ -209,5 +216,3 @@ Toute la documentation technique est dans **[documentation/DOCUMENTATION.md](doc
 | Lancer / planifier / configurer | [§6 Exécution & exploitation](documentation/DOCUMENTATION.md#6-exécution--exploitation) |
 | Le dashboard & le monitoring | [§7 Monitoring & Dashboard](documentation/DOCUMENTATION.md#7-monitoring--dashboard) |
 | Les tests | [§8 Tests](documentation/DOCUMENTATION.md#8-tests) |
-
-Le requis original est dans [plan_de_implementation.md](plan_de_implementation.md).
