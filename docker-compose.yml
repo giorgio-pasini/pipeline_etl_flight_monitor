@@ -60,13 +60,33 @@ services:
       timeout: 5s
       retries: 10
 
+  # Proxy filtrant devant le socket Docker (tecnativa/docker-socket-proxy, basé HAProxy).
+  # Airflow ne monte PLUS le socket brut : il parle au proxy en TCP sur le réseau interne du
+  # compose (aucun port publié). Le socket n'est exposé qu'ici, en lecture seule, dans un
+  # conteneur minimal sans capabilities -> on neutralise la faille classique du docker.sock
+  # (Airflow exécute du code DAG arbitraire et n'a plus besoin d'être root ni d'accéder au socket).
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    profiles: ["airflow"]
+    environment:
+      CONTAINERS: 1        # créer / inspecter / supprimer le conteneur du job
+      IMAGES: 1            # inspecter l'image flight-etl
+      POST: 1              # autoriser create/start/remove (sinon API en lecture seule)
+      # tout le reste reste à 0 (EXEC, NETWORKS, VOLUMES, INFO, AUTH, SWARM, etc.)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # PAS de `ports:` -> joignable uniquement via le réseau interne du compose.
+
   # Airflow standalone (webserver + scheduler) ; il DÉCLENCHE le job dans un conteneur
-  # `flight-etl` séparé (DockerOperator) -> accès au socket Docker requis (user 0:0).
+  # `flight-etl` séparé (DockerOperator) -> via le proxy, sans monter le socket ni être root.
   airflow:
     build: ./airflow
     image: flight-airflow:latest
     profiles: ["airflow"]
-    user: "0:0"
     # Identifiants déterministes admin/admin : on crée l'utilisateur AVANT `standalone`
     # (qui ne retouche pas un admin existant) -> pas de mot de passe aléatoire à chercher.
     command:
@@ -80,6 +100,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -90,7 +112,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./airflow/dags:/opt/airflow/dags
       - datalake:/opt/airflow/datalake   # volume "flight_datalake" — lecture des métriques (check_outcome)
 

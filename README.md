@@ -163,6 +163,10 @@ docker compose --profile airflow up -d       # Airflow (:8080) + dashboard (:850
 
 > Airflow = ordonnancement & supervision · dashboard = visualisation · `flight-etl` = exécution.
 
+> **Sécurité** : Airflow ne monte pas le socket Docker et tourne en non-root ; il pilote le
+> `DockerOperator` via un proxy filtrant (`docker-socket-proxy`, réseau interne) qui n'expose que
+> l'API strictement nécessaire. (En prod K8s, le `KubernetesPodOperator` remplace ce mécanisme.)
+
 ## Démarrage rapide (natif, sans Docker)
 
 ```bash

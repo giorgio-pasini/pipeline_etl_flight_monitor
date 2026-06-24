@@ -315,8 +315,11 @@ docker compose exec airflow airflow dags trigger flight_etl_pipeline   # run à 
   `status != success` ou erreurs).
 - **Volume partagé `flight_datalake`** entre `etl`, `dashboard`, le conteneur job et `airflow` →
   le **dashboard (:8501)** visualise chaque run planifié (« Statut d'exécution ») et les KPIs.
-- Accès au socket Docker : service `airflow` en `user: "0:0"` (orchestrateur local ; en prod K8s
-  ce point disparaît). Détails dans `airflow/Dockerfile` et `airflow/dags/flight_etl_dag.py`.
+- Accès au socket Docker **sécurisé** : Airflow ne monte plus le socket brut et tourne en
+  utilisateur non-root. Il pilote le `DockerOperator` via un **proxy filtrant**
+  (`docker-socket-proxy`, réseau interne, aucun port publié) qui n'expose que les endpoints API
+  nécessaires (`CONTAINERS`/`IMAGES`/`POST`) ; le socket n'est monté qu'en lecture seule dans ce
+  proxy minimal. En prod K8s ce point disparaît. Détails dans `airflow/dags/flight_etl_dag.py`.
 - **Cible prod** : remplacer `DockerOperator` par `KubernetesPodOperator` (même structure de DAG).
 
 ### Configuration (`config/pipeline_config.py`, surchargeable par env)

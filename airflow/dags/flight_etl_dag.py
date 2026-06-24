@@ -24,6 +24,9 @@ from docker.types import Mount
 DATALAKE_VOLUME = "flight_datalake"
 # Chemin du volume monté DANS le conteneur Airflow (pour la tâche de contrôle).
 DATALAKE_IN_AIRFLOW = "/opt/airflow/datalake"
+# Accès au démon Docker via le proxy filtrant (docker-socket-proxy) : Airflow ne monte plus
+# le socket brut. Surchargeable par env (ex. unix://var/run/docker.sock en debug local hors compose).
+DOCKER_HOST_URL = os.getenv("DOCKER_HOST", "tcp://docker-socket-proxy:2375")
 
 # Variables transmises au conteneur du job (secrets/tuning hérités de l'environnement Airflow).
 JOB_ENV = {
@@ -73,7 +76,7 @@ with DAG(
         command="python scripts/run_job.py --with-silver-gold",
         mounts=[Mount(source=DATALAKE_VOLUME, target="/app/datalake", type="volume")],
         environment=JOB_ENV,
-        docker_url="unix://var/run/docker.sock",
+        docker_url=DOCKER_HOST_URL,
         auto_remove="success",
         mount_tmp_dir=False,            # évite l'échec de montage tmp (Docker Desktop/Windows)
         network_mode="bridge",
